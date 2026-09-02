@@ -188,6 +188,14 @@ catalog in `ReloraCore/Backend.swift` — one catalog, no string forks.
   update, whose container path changes. Legacy absolute `file://` rows
   still resolve, and the contact timeline shows the replay pill only
   when the store finds the file on disk.
+- **A launch-time sweep landed in 2.3.0.** It removes any recording no
+  live memory references, after a one-hour grace. A tombstoned memory's
+  file goes at the next launch — Undo is a 4 s in-process toast and
+  cannot race it. A row un-tombstoned remotely and pulled back later
+  degrades to no replay pill, not a restored recording. Delete Account
+  removes every recording at once. Stale `audio_local_uri` values are
+  never nulled: that would dirty the row and push a local concern onto
+  the server.
 
 ## M8 outcomes (M8b, M9, M10, and the final report)
 
