@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import ReloraCore
 import ReloraData
 import ReloraDesign
 import ReloraServices

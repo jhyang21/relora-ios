@@ -108,7 +108,7 @@ public final class SettingsViewModel {
 
     /// The real RevenueCat entitlement, which decides whether the See Plans
     /// and Manage Subscription rows appear.
-    public var planID: QuotaPolicy.PlanID {
+    private var planID: QuotaPolicy.PlanID {
         billing.subscriptionSnapshot.planID
     }
 
