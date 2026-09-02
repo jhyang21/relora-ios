@@ -60,7 +60,7 @@ runtime simulator discovery.
   (build number via `CURRENT_PROJECT_VERSION` xcarg) →
   `upload_to_testflight`. Dispatch-only: `gh workflow run testflight.yml`.
 - Certificates/profiles live in the private repo
-  `https://github.com/jhyang21/notes-organizer-certificates`, managed
+  `https://github.com/jhyang21/ios-certificates`, managed
   headlessly by fastlane match. **Shared with TidyNote** — a `match nuke`
   or `MATCH_PASSWORD` rotation breaks both apps' pipelines.
 - Repo secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`,

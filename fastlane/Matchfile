@@ -2,7 +2,7 @@
 # reuses the team's one Apple Distribution certificate and only mints a
 # new provisioning profile for this bundle id. A `match nuke` or a
 # MATCH_PASSWORD rotation here breaks both apps' pipelines.
-git_url("https://github.com/jhyang21/notes-organizer-certificates")
+git_url("https://github.com/jhyang21/ios-certificates")
 storage_mode("git")
 type("appstore")
 
