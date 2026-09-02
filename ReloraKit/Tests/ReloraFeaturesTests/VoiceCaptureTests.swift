@@ -628,6 +628,21 @@ struct VoiceSavePlanTests {
         #expect(memory.createdAt == fixedNowISO)
     }
 
+    /// The plan does no filesystem work: whatever the caller hands it is what
+    /// lands on the row. Since 2.2.0 that is a file name from `RecordingStore`
+    /// rather than an absolute `file://` string, and the plan cannot tell the
+    /// difference — which is the point.
+    @Test func theRecordingReferenceIsCarriedThroughVerbatim() throws {
+        var ids = VoiceSaveIDs()
+        let plan = try VoiceSaveTransaction.plan(
+            input(audioLocalURI: "relora-recording-ABC123.m4a"),
+            ids: &ids,
+            now: fixedNow
+        )
+
+        #expect(plan.memory?.audioLocalURI == "relora-recording-ABC123.m4a")
+    }
+
     /// Transcripts are kept only when the setting is on and the text came
     /// back from the server. A guest's self-written note has none to keep.
     @Test func aTranscriptIsOnlyStoredWhenItIsMeantToBe() throws {

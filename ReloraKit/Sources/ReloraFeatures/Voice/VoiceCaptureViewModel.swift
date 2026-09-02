@@ -620,7 +620,7 @@ public final class VoiceCaptureViewModel {
             reminderSuggestion: reminderSuggestion,
             acceptReminder: acceptReminder,
             reminderRemindAt: acceptReminder ? ReloraTimestamp.from(reminderDate) : nil,
-            audioLocalURI: audio?.fileURL.absoluteString,
+            audioLocalURI: await storedRecordingName(),
             // Only a capture the server never saw is charged locally. A
             // signed-in user's note was counted by `transcribe_audio` before
             // the transcript came back, and charging it again here would
@@ -659,6 +659,25 @@ public final class VoiceCaptureViewModel {
         let database = environment.database
         return await Task.detached(priority: .userInitiated) {
             (try? AppSettingsStore(database: database).saveVoiceTranscripts()) ?? true
+        }.value
+    }
+
+    /// Moves the recording out of the temporary directory and returns the file
+    /// name to store, or nil if there is no recording or the move failed.
+    ///
+    /// Done here rather than in `VoiceSaveTransaction.plan`, which is pure and
+    /// synchronous by contract and must not touch the filesystem; off the main
+    /// actor for the same reason `persistTranscript()` is.
+    ///
+    /// A failed move saves the note *without* audio. Failing the whole save
+    /// would lose the words over a file, and storing the temporary path would
+    /// store a reference that is already doomed. Saving again after a failure
+    /// is safe: the store is idempotent on the same temporary file.
+    private func storedRecordingName() async -> String? {
+        guard let fileURL = audio?.fileURL else { return nil }
+        let store = RecordingStore.shared
+        return await Task.detached(priority: .userInitiated) {
+            try? store.store(temporaryURL: fileURL)
         }.value
     }
 
