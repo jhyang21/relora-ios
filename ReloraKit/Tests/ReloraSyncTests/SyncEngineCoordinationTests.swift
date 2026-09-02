@@ -13,6 +13,25 @@ private actor StatusRecorder {
     func record(_ status: SyncStatus) { statuses.append(status) }
 }
 
+/// Waits for the recorded statuses to satisfy `isSatisfied`, up to a
+/// generous ceiling. The retry chain is driven by the real clock, so a
+/// fixed sleep either has to pad every run or races a loaded machine —
+/// polling the recorder returns as soon as the expected status lands and
+/// only spends the full ceiling when it never does.
+private func waitForStatuses(
+    _ recorder: StatusRecorder,
+    timeout: Duration = .seconds(5),
+    until isSatisfied: @Sendable ([SyncStatus]) -> Bool
+) async -> [SyncStatus] {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
+        let statuses = await recorder.statuses
+        if isSatisfied(statuses) { return statuses }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+    return await recorder.statuses
+}
+
 /// A thread-safe mutable flag for `isOnline` closures that need to flip
 /// mid-test (`SyncEngine`'s own `isOnline` closure is captured once at
 /// init, so the closure itself must be able to change what it returns).
@@ -243,10 +262,8 @@ private final class OnlineFlag: @unchecked Sendable {
             return
         }
 
-        // Wait past both automatic retries (10ms, then 10ms).
-        try await Task.sleep(nanoseconds: 250_000_000)
-
-        let statuses = await recorder.statuses
+        // Wait for both automatic retries (10ms, then 10ms) to play out.
+        let statuses = await waitForStatuses(recorder) { $0.contains(.idle) }
         let syncingCount = statuses.filter { $0 == .syncing }.count
         // Three attempts total: the initial call plus two automatic retries.
         #expect(syncingCount >= 3)
@@ -288,10 +305,8 @@ private final class OnlineFlag: @unchecked Sendable {
             return
         }
 
-        // Wait past all three automatic retries.
-        try await Task.sleep(nanoseconds: 350_000_000)
-
-        let statuses = await recorder.statuses
+        // Wait for all three automatic retries to play out and exhaust.
+        let statuses = await waitForStatuses(recorder) { $0.contains(.failed) }
         #expect(statuses.filter { $0 == .failed }.count == 1)
         #expect(statuses.last == .failed)
         // Every attempt failed -- .idle never appears.

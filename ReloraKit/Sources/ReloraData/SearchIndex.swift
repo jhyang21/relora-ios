@@ -244,7 +244,8 @@ public enum ContactSearchIndex {
     }
 
     public static func searchContactIDs(_ database: AppDatabase, query: String) throws -> [String] {
-        try database.read { db in searchContactIDs(db, query: query) }
+        try runDeferredRebuild(database)
+        return try database.read { db in searchContactIDs(db, query: query) }
     }
 
     public static func matchSnippets(_ database: AppDatabase, contactIDs: [String], query: String) throws -> [String: String] {
@@ -269,6 +270,21 @@ public enum ContactSearchIndex {
         if try shouldRebuild(db) {
             rebuild(db)
         }
+    }
+
+    /// Runs a rebuild an earlier `markNeedsRebuild` deferred, on the writer.
+    ///
+    /// RN's `searchContactIds` runs the recovery rebuild on the same handle
+    /// it reads through, because expo-sqlite has only one. Here `read` hands
+    /// out a read-only connection, so the rebuild has to be lifted out of the
+    /// search's own transaction: left inside it, its `DELETE` throws, and
+    /// `rebuild`'s catch latches the index off for the rest of the process —
+    /// a flagged rebuild would permanently degrade search to the LIKE
+    /// fallback instead of recovering it.
+    private static func runDeferredRebuild(_ database: AppDatabase) throws {
+        guard SearchIndexState.shared.isUsable() else { return }
+        guard try database.read({ db in try shouldRebuild(db) }) else { return }
+        try database.write { db in rebuild(db) }
     }
 
     private static func searchContactIDsLike(_ db: Database, query: String) throws -> [String] {

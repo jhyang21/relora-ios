@@ -91,7 +91,10 @@ private let transcribeBody = Data(#"{"transcript":"Coffee with Ada.","request_id
 private let extractBody = Data(#"""
 {"subject_name_guess":{"text":"Ada","confidence":0.9},"memory_draft":{"text":"Coffee with Ada.","confidence":0.8},"key_things":[],"reminder_suggestion":null}
 """#.utf8)
-private let authRequiredBody = Data(#"{"error":{"code":"AUTH_REQUIRED","message":"Sign in required"}}"#.utf8)
+/// The flat `{ error, code }` envelope every edge function returns on
+/// failure (`_shared/response.ts`), here the 401 `authenticateRequest`
+/// raises when there is no usable session.
+private let authRequiredBody = Data(#"{"error":"Sign in required","code":"AUTH_REQUIRED"}"#.utf8)
 
 /// A real file on disk. `transcribeAudio` reads and size-checks the audio
 /// before it builds a request, so a URL that points at nothing fails the

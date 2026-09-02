@@ -149,10 +149,14 @@ private func ownerIDs(_ database: AppDatabase, table: String) throws -> [String]
     try migration.writePending(GuestMigration.PendingMigration(
         fromUserID: fromUserID, toUserID: toUserID, lastAttemptAt: ReloraTimestamp.now()
     ))
-    try database.write { db in
+    // `writeWithoutTransaction`, like `migrateOwnership` itself: SQLite
+    // ignores `PRAGMA foreign_keys` inside a transaction, and the child
+    // tables' composite (contact_id, user_id) keys reject a contacts-only
+    // rewrite while enforcement is on.
+    try database.writeWithoutTransaction { db in
         try db.execute(sql: "PRAGMA foreign_keys = OFF")
+        defer { try? db.execute(sql: "PRAGMA foreign_keys = ON") }
         try db.execute(sql: "UPDATE contacts SET user_id = ? WHERE user_id = ?", arguments: [toUserID, fromUserID])
-        try db.execute(sql: "PRAGMA foreign_keys = ON")
     }
     #expect(try migration.hasPending())
 
@@ -190,8 +194,11 @@ private func ownerIDs(_ database: AppDatabase, table: String) throws -> [String]
 @Test func resumeClearsAStaleMarkerAlreadySatisfiedByTheCurrentAccount() async throws {
     let database = try Fixtures.makeDatabase()
     let migration = GuestMigration(database: database)
+    // The marker's source id *is* the account now signed in — the rows it
+    // describes already landed. Mirrors "drops a stale marker whose rows
+    // already belong to the active account" in ownershipMigration.test.ts.
     try migration.writePending(GuestMigration.PendingMigration(
-        fromUserID: fromUserID, toUserID: toUserID, lastAttemptAt: ReloraTimestamp.now()
+        fromUserID: toUserID, toUserID: toUserID, lastAttemptAt: ReloraTimestamp.now()
     ))
 
     let result = await migration.resumePendingMigrationIfAny(toUserID: toUserID, identityKind: .account, source: "boot")

@@ -146,6 +146,8 @@ private func multipartFieldNames(body: Data, boundary: String) -> [String] {
 
 // MARK: - Headers
 
+extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
+
 @Test func transcribeAudioSendsExactHeadersAndURL() async throws {
     MockURLProtocol.reset()
     MockURLProtocol.handler = { _ in
@@ -372,6 +374,8 @@ private func multipartFieldNames(body: Data, boundary: String) -> [String] {
 
     #expect(progressSeconds.values == [15])
 }
+
+}}
 
 /// A synchronous, thread-safe collector for `onSlowProgress` callbacks.
 /// `EdgeFunctionsClient` calls `onSlowProgress` directly (not as an async

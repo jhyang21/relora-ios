@@ -72,8 +72,13 @@ public enum RowTransforms {
         for column in localOnlyColumns {
             out.removeValue(forKey: column)
         }
-        if let arrayColumn = arrayColumns[table] {
-            out[arrayColumn] = .array(decodedArrayColumn(out[arrayColumn]))
+        // Only a column actually present *as TEXT* is decoded, mirroring
+        // `transformRowForSupabase`'s `typeof out.descriptors === 'string'`
+        // guard: a row read without that column (or holding anything else)
+        // is carried through untouched rather than gaining an empty array
+        // the local row never had.
+        if let arrayColumn = arrayColumns[table], case .string(let text)? = out[arrayColumn] {
+            out[arrayColumn] = .array(decodedArrayColumn(text))
         }
         return out
     }
@@ -82,8 +87,7 @@ public enum RowTransforms {
     /// `transformRowForSupabase` — a local array column that fails to
     /// decode (corrupt TEXT-JSON) pushes as an empty array rather than
     /// failing the whole batch.
-    private static func decodedArrayColumn(_ value: JSONValue?) -> [JSONValue] {
-        guard case .string(let text)? = value else { return [] }
+    private static func decodedArrayColumn(_ text: String) -> [JSONValue] {
         guard let strings = try? TextJSONArray.decode(text) else { return [] }
         return strings.map { .string($0) }
     }

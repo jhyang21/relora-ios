@@ -188,9 +188,20 @@ public actor SyncEngine {
             return await existing.value
         }
 
-        let task = Task { await self.performSync(userID: userID, reason: reason) }
+        let task = Task { await self.runAttempt(userID: userID, reason: reason) }
         inFlightTask = task
-        let outcome = await task.value
+        return await task.value
+    }
+
+    /// Runs one attempt and drops the in-flight marker before returning,
+    /// mirroring `runSync`'s `finally { syncInFlight = null }` — the marker
+    /// is cleared by the attempt itself, not by whoever awaits it. Clearing
+    /// it in `syncNow` after `await task.value` instead would leave it set
+    /// across the resumption hop, and a retry (or any other scheduled sync)
+    /// firing inside that window would join this already-finished attempt
+    /// and adopt its stale outcome instead of starting the next one.
+    private func runAttempt(userID: String, reason: String) async -> SyncOutcome {
+        let outcome = await performSync(userID: userID, reason: reason)
         inFlightTask = nil
         return outcome
     }

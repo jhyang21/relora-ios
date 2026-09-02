@@ -216,11 +216,8 @@ final class AppBootstrap {
         hasStarted = true
 
         // Ports RN's startup `initializeSearchIndex` call: runs any FTS
-        // rebuild a previous run's sync pull deferred. Without this, the
-        // deferred rebuild is only consumed by the next local write —
-        // `searchContactIDs` runs on a read connection, where the rebuild's
-        // DELETE throws and every search drops to the LIKE fallback until
-        // then. Best-effort, like RN's.
+        // rebuild a previous run's sync pull deferred, so the first search
+        // of the session does not pay for it. Best-effort, like RN's.
         try? ContactSearchIndex.initialize(database)
 
         sync.start()

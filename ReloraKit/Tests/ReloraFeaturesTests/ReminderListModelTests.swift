@@ -7,6 +7,11 @@ import ReloraCore
 
 private let fixedNowISO = "2026-08-31T12:00:00.000Z"
 
+/// The live contact every `reminder()` below points at. A reminder whose
+/// contact is missing from this map is dropped, so a section test that wants
+/// rows has to name the contact — see `missingContactDropsRow`.
+private let liveContactNames = ["contact-1": "Ada"]
+
 private func reminder(
     _ id: String = ReloraID.new(),
     contactID: String = "contact-1",
@@ -77,7 +82,7 @@ struct ReminderListModelSectionsTests {
     func excludesTombstoned() {
         let live = reminder(title: "Live")
         let deleted = reminder(title: "Deleted", deletedAt: "2026-08-30T00:00:00.000Z")
-        let sections = ReminderListModel.sections(reminders: [live, deleted], contactNames: [:], nowISO: fixedNowISO)
+        let sections = ReminderListModel.sections(reminders: [live, deleted], contactNames: liveContactNames, nowISO: fixedNowISO)
         let allTitles = sections.flatMap { $0.rows.map(\.reminder.title) }
         #expect(allTitles == ["Live"])
     }
@@ -89,7 +94,7 @@ struct ReminderListModelSectionsTests {
         // No upcoming reminder in this set.
         let sections = ReminderListModel.sections(
             reminders: [done, overdue],
-            contactNames: [:],
+            contactNames: liveContactNames,
             nowISO: fixedNowISO
         )
         #expect(sections.map(\.bucket) == [.overdue, .done])
@@ -104,7 +109,7 @@ struct ReminderListModelSectionsTests {
 
         let sections = ReminderListModel.sections(
             reminders: [laterOverdue, soonerOverdue, laterUpcoming, soonerUpcoming],
-            contactNames: [:],
+            contactNames: liveContactNames,
             nowISO: fixedNowISO
         )
 
@@ -121,7 +126,7 @@ struct ReminderListModelSectionsTests {
 
         let sections = ReminderListModel.sections(
             reminders: [completedEarlier, completedLater],
-            contactNames: [:],
+            contactNames: liveContactNames,
             nowISO: fixedNowISO
         )
         #expect(sections.first?.rows.map(\.reminder.title) == ["Completed later", "Completed earlier"])
@@ -131,7 +136,7 @@ struct ReminderListModelSectionsTests {
     func missingContactDropsRow() {
         let sections = ReminderListModel.sections(
             reminders: [reminder(contactID: "unknown-contact")],
-            contactNames: ["contact-1": "Ada"],
+            contactNames: liveContactNames,
             nowISO: fixedNowISO
         )
         #expect(sections.isEmpty)
@@ -145,7 +150,7 @@ struct ReminderListModelSectionsTests {
 
         let sections = ReminderListModel.sections(
             reminders: [overdue, upcoming, done],
-            contactNames: [:],
+            contactNames: liveContactNames,
             nowISO: fixedNowISO
         )
 

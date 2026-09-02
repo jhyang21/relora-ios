@@ -106,6 +106,10 @@ private func makeClient(token: String? = "test-access-token") -> PostgRESTLite {
 
 // MARK: - Headers
 
+/// Serialized: every test here shares `MockURLProtocol`'s statics, and
+/// Swift Testing otherwise interleaves them.
+@Suite(.serialized) struct PostgRESTLiteSerialTests {
+
 @Test func upsertSendsExactHeaders() async throws {
     MockURLProtocol.reset()
     MockURLProtocol.handler = { _ in .init(statusCode: 200, body: Data()) }
@@ -301,4 +305,6 @@ private func makeClient(token: String? = "test-access-token") -> PostgRESTLite {
         #expect(error.code == "HTTP_402")
         #expect(error.httpStatus == 402)
     }
+}
+
 }

@@ -43,10 +43,37 @@ public enum ReloraTimestamp {
         return formatter.string(from: date)
     }
 
+    /// The wire format's literal characters, by position. Every position
+    /// holding a `0` must be a digit; every other position must be that
+    /// exact character.
+    private static let shape = Array("0000-00-00T00:00:00.000Z".utf8)
+
+    /// Whether `string` is the wire format character for character.
+    ///
+    /// `DateFormatter` parses more loosely than its own format string, even
+    /// with `isLenient = false`: it reads `…56.7Z` as 700 ms and `2026-8-31`
+    /// as August 31st. Both would hand back a `Date` that re-emits as a
+    /// different string, and every stored timestamp compares as a String, so
+    /// a value of that shape has no business being read as a wire timestamp.
+    private static func hasWireShape(_ string: String) -> Bool {
+        let zero = UInt8(ascii: "0")
+        let nine = UInt8(ascii: "9")
+        guard string.utf8.count == shape.count else { return false }
+        for (byte, expected) in zip(string.utf8, shape) {
+            if expected == zero {
+                guard byte >= zero, byte <= nine else { return false }
+            } else if byte != expected {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Parses a wire timestamp into a `Date`. Returns `nil` for anything
     /// that does not match the exact wire format (wrong fractional-digit
     /// count, missing `Z`, an offset instead of `Z`, and so on).
     public static func parse(_ string: String) -> Date? {
+        guard hasWireShape(string) else { return nil }
         lock.lock()
         defer { lock.unlock() }
         return formatter.date(from: string)

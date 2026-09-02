@@ -247,8 +247,13 @@ public final class IdentityController: Sendable {
     /// `retryOwnershipMigration` (authState.ts).
     public func retryOwnershipMigration() async {
         let result = await ownershipMigration.resumePendingMigrationIfAny(currentIdentity: identity, source: "manual-retry")
+        // A success clears the flag outright and returns, as RN does: the
+        // migration that just finished cleared its own marker, so re-reading
+        // it would only risk turning the banner back on.
         if result.outcome == .succeeded {
+            ownershipMigrationPending = false
             await onIdentityApplied?(identity)
+            return
         }
         ownershipMigrationPending = (try? ownershipMigration.hasPending()) ?? false
     }

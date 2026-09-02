@@ -64,12 +64,27 @@ import ReloraData
         #expect(count == 5)
     }
 
+    /// The guard protects a row that is dirty *when the pull writes*, which
+    /// on a full sync means a row re-edited after the push read its
+    /// snapshot: a row still holding the pushed snapshot is cleaned by this
+    /// same sync's push and then legitimately accepts the pulled values.
     @Test func pullDoesNotOverwriteALocallyDirtyRow() async throws {
         let database = try AppDatabase.inMemory()
         try database.write { db in
-            try SyncFixtures.insertContact(db, id: "c1", name: "LocalEdit", updatedAt: "2026-01-01T00:00:00.000Z", isDirty: true, dirtyAt: "2026-01-01T00:00:00.000Z")
+            try SyncFixtures.insertContact(db, id: "c1", name: "Pushed", updatedAt: "2026-01-01T00:00:00.000Z", isDirty: true, dirtyAt: "2026-01-01T00:00:00.000Z")
         }
         let transport = StubSyncTransport()
+        // The user edits the contact while its push is in flight, so it is
+        // dirty again (under a new dirty_at the flag-clear cannot match) by
+        // the time the pull applies the server row.
+        await transport.setOnUpsert { _, _ in
+            try database.write { db in
+                try db.execute(
+                    sql: "UPDATE contacts SET name = 'LocalEdit', is_dirty = 1, dirty_at = ? WHERE id = 'c1'",
+                    arguments: ["2026-01-01T00:00:03.000Z"]
+                )
+            }
+        }
         await transport.setServerRows(table: .contacts, rows: [
             serverContactRow(id: "c1", name: "ServerVersion", updatedAt: "2026-01-01T00:00:05.000Z")
         ])
@@ -115,7 +130,6 @@ import ReloraData
         let database = try AppDatabase.inMemory()
         try database.write { db in
             try SyncFixtures.insertContact(db, id: "c1", updatedAt: "2026-01-01T00:00:00.000Z")
-            // Locally dirty reminder — the pull's guarded upsert must skip it.
             try SyncFixtures.insertReminder(
                 db, id: "r1", contactID: "c1", remindAt: "2026-02-01T00:00:00.000Z",
                 updatedAt: "2026-01-01T00:00:03.000Z", isDirty: true, dirtyAt: "2026-01-01T00:00:03.000Z",
@@ -123,6 +137,19 @@ import ReloraData
             )
         }
         let transport = StubSyncTransport()
+        // Same race as pullDoesNotOverwriteALocallyDirtyRow: the reminder is
+        // re-edited while its push is in flight, so it is still dirty when
+        // the pull tries to apply the server's tombstone and the guarded
+        // upsert skips it — the row stays live locally, and its notification
+        // must therefore stay scheduled.
+        await transport.setOnUpsert { _, _ in
+            try database.write { db in
+                try db.execute(
+                    sql: "UPDATE reminders SET title = 'Edited', is_dirty = 1, dirty_at = ? WHERE id = 'r1'",
+                    arguments: ["2026-01-01T00:00:04.000Z"]
+                )
+            }
+        }
         await transport.setServerRows(table: .reminders, rows: [
             serverReminderRow(id: "r1", contactID: "c1", remindAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:05.000Z", deletedAt: "2026-01-01T00:00:05.000Z")
         ])

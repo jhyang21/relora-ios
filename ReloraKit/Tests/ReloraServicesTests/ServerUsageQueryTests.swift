@@ -6,13 +6,10 @@ import ReloraCore
 /// Reuses `MockURLProtocol` from EdgeFunctionsTests.swift (same target,
 /// internal — not `private` — so it is visible here without a duplicate
 /// declaration). Its handler/capturedRequests/hangRequests statics are
-/// process-wide, shared across every file in this target; `EdgeFunctionsTests.swift`
-/// runs its own suite unmarked (no `@Suite(.serialized)`) despite that
-/// sharing, so this file follows the same precedent rather than introducing
-/// serialization no sibling file uses. Swift Testing parallelizes across
-/// types by default, which means a genuinely flaky interleaving between
-/// this file and EdgeFunctionsTests.swift is a pre-existing risk, not one
-/// introduced here — flagged in the M9 report, not fixed by it.
+/// process-wide, shared across every file in this target, so the tests
+/// here and in EdgeFunctionsTests.swift all live under the serialized
+/// `MockNetworkSerialTests` parent suite — the interleaving the M9
+/// report flagged did happen on CI.
 
 private struct StubTokenProvider: AccessTokenProvider {
     let token: String?
@@ -45,6 +42,8 @@ private func contentRangeStub(statusCode: Int = 200, total: Int, headerValue: St
 }
 
 // MARK: - Request shape
+
+extension MockNetworkSerialTests { @Suite struct ServerUsageQuery {
 
 @Test func usageSummaryIssuesHEADRequestsWithExactHeaders() async throws {
     MockURLProtocol.reset()
@@ -170,3 +169,5 @@ private func contentRangeStub(statusCode: Int = 200, total: Int, headerValue: St
         Issue.record("Expected a BackendError, got \(error)")
     }
 }
+
+}}
