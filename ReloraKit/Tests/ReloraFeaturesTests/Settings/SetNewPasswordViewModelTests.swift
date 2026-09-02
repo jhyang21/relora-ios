@@ -2,6 +2,7 @@ import Testing
 @testable import ReloraFeatures
 
 @Suite("SetNewPasswordViewModel.validate")
+@MainActor
 struct SetNewPasswordViewModelValidateTests {
     @Test("A password under 6 characters is too short, even if confirm matches")
     func tooShortWinsFirst() {

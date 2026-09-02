@@ -143,8 +143,9 @@ struct VoiceReviewTests {
 
         #expect(items.map(\.id) == [VoiceReviewItem.memoryDraftID, "kt-1", "kt-2"])
         #expect(items.map(\.kind) == [.memory, .keyThing, .keyThing])
-        #expect(items[0].text == "Coffee with Ada.")
-        #expect(items[0].labels == VoiceReviewItem.memoryLabels)
+        let draft = items[0]
+        #expect(draft.text == "Coffee with Ada.")
+        #expect(draft.labels == VoiceReviewItem.memoryLabels)
         #expect(items.allSatisfy(\.keep))
     }
 
