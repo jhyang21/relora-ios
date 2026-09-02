@@ -285,7 +285,13 @@ struct MemoryRow: View {
                 .reloraAnimation(.gentle, value: isTranscriptExpanded)
             }
 
-            if let audioLocalURI = memory.audioLocalURI, let url = URL(string: audioLocalURI) {
+            // Gated here rather than inside `AudioReplayPill`, because the
+            // pill's other caller — the review screen, showing the recording
+            // just made — must show it whatever the disk says. And the check
+            // belongs to the store: whether a stored value is a legacy
+            // absolute `file://` string or a bare file name is storage
+            // knowledge, and only the store knows where the names resolve.
+            if let url = RecordingStore.shared.existingURL(for: memory.audioLocalURI ?? "") {
                 AudioReplayPill(url: url)
             }
         }
