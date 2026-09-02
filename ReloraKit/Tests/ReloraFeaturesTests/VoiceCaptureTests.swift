@@ -132,7 +132,7 @@ struct VoiceQuotaGateTests {
 @Suite("Voice review items")
 struct VoiceReviewTests {
 
-    @Test func extractionBecomesADraftThenTheKeyThings() {
+    @Test func extractionBecomesADraftThenTheKeyThings() throws {
         let items = VoiceReview.buildItems(
             extraction: extraction(
                 draft: "  Coffee with Ada.  ",
@@ -145,7 +145,8 @@ struct VoiceReviewTests {
         #expect(items.map(\.kind) == [.memory, .keyThing, .keyThing])
         let draft = items[0]
         #expect(draft.text == "Coffee with Ada.")
-        #expect(draft.labels == VoiceReviewItem.memoryLabels)
+        let labels = draft.labels
+        #expect(labels == VoiceReviewItem.memoryLabels)
         #expect(items.allSatisfy(\.keep))
     }
 
