@@ -66,7 +66,8 @@ extension MockNetworkSerialTests { @Suite struct ServerUsageQuery {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer the-access-token")
         #expect(request.value(forHTTPHeaderField: "Prefer") == "count=exact")
         #expect(request.url?.path == "/rest/v1/voice_note_usage_events")
-        #expect(request.url?.query?.contains("select=*") == true)
+        // `*` travels as `%2A` under the strict encoder; compare decoded.
+        #expect(request.url?.query(percentEncoded: false)?.contains("select=*") == true)
         #expect(request.url?.query?.contains("user_id=eq.user-1") == true)
     }
 

@@ -389,13 +389,10 @@ public actor SyncEngine {
             pulledTables.append(try await fetchTableSince(table: table, userID: userID, cursor: cursor))
         }
 
-        // Compared as instants for the same reason `fetchTableSince` does:
-        // the per-table maxima reaching here can carry different timestamptz
-        // shapes, and string order between shapes is not chronological.
         var maxPulledUpdatedAt: String?
         for pulled in pulledTables {
-            guard let candidate = pulled.maxUpdatedAt else { continue }
-            if Self.isLaterInstant(candidate, than: maxPulledUpdatedAt) {
+            if let candidate = pulled.maxUpdatedAt,
+               maxPulledUpdatedAt == nil || candidate > maxPulledUpdatedAt! {
                 maxPulledUpdatedAt = candidate
             }
         }
@@ -445,38 +442,25 @@ public actor SyncEngine {
 
         guard !rows.isEmpty else { return PulledTable(table: table, rows: [], maxUpdatedAt: nil) }
 
-        // Compared as instants, not as Strings. PostgREST does not echo one
-        // consistent timestamptz shape: a row this client last wrote comes
-        // back as `...602Z`, a row the server touched as `...60222+00:00`,
-        // and lexicographically the first sorts above the second even though
-        // it is the earlier instant. A string max therefore hands
-        // `pickNextCursor` a cursor that sits before rows already pulled,
-        // which the next `gt.` filter skips for good.
-        //
-        // The winning row's raw server string is kept verbatim: re-emitting
-        // it through `Date` would truncate sub-millisecond digits and move
-        // the `gt.` boundary backwards.
+        // String comparison, not date parsing — matches fetchTableSince's
+        // own `updatedAt > maxUpdatedAt` in syncEngine.ts. PostgREST echoes
+        // two shapes here: a row this client last wrote comes back as
+        // `…602Z`, a row the server touched as `…60222+00:00` (trailing
+        // zeros trimmed). String order never overshoots the true maximum:
+        // within one shape it is chronological, and across shapes the only
+        // disagreement is a `Z` value sorting above a `+00:00` value that
+        // is later by under a millisecond. The cursor then sits at or
+        // before the true max, and the next `gt.` pull fetches that
+        // sub-millisecond row and converges. Parsing would not do better:
+        // `FlexibleTimestamp` resolves milliseconds only.
         var maxUpdatedAt: String?
         for row in rows {
-            guard case .string(let updatedAt)? = row["updated_at"] else { continue }
-            if Self.isLaterInstant(updatedAt, than: maxUpdatedAt) {
+            if case .string(let updatedAt)? = row["updated_at"],
+               maxUpdatedAt == nil || updatedAt > maxUpdatedAt! {
                 maxUpdatedAt = updatedAt
             }
         }
         return PulledTable(table: table, rows: rows, maxUpdatedAt: maxUpdatedAt)
-    }
-
-    /// Whether `candidate` is a later instant than `current`, and always true
-    /// when there is no `current` yet. Falls back to string order when either
-    /// value fails to parse — the same order the rest of this engine uses,
-    /// and the only order left when there is no instant to compare.
-    private static func isLaterInstant(_ candidate: String, than current: String?) -> Bool {
-        guard let current else { return true }
-        guard let candidateMs = FlexibleTimestamp.epochMilliseconds(candidate),
-              let currentMs = FlexibleTimestamp.epochMilliseconds(current) else {
-            return candidate > current
-        }
-        return candidateMs > currentMs
     }
 
     /// Applies one pulled server row locally. Builds the column list from
