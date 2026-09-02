@@ -1,0 +1,78 @@
+name: TestFlight
+
+# Dispatch-only while the pipeline beds in:
+#   gh workflow run testflight.yml -R jhyang21/relora-ios
+# Before dispatching a run that ships new work, bump MARKETING_VERSION in
+# project.yml (see CLAUDE.md's version rule).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.4.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.4.1.app
+          else
+            echo "Xcode_26.4.1.app not found on this runner; using default Xcode."
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # The one place real app secrets are baked in. xcconfig treats "//"
+      # as a comment start even inside a URL, so the URL's "://" becomes
+      # ":/$()/" on the way in (IOS_SUPABASE_URL is stored plain).
+      - name: Write Secrets.xcconfig
+        env:
+          IOS_SUPABASE_URL: ${{ secrets.IOS_SUPABASE_URL }}
+          IOS_SUPABASE_ANON_KEY: ${{ secrets.IOS_SUPABASE_ANON_KEY }}
+          IOS_REVENUECAT_APPLE_API_KEY: ${{ secrets.IOS_REVENUECAT_APPLE_API_KEY }}
+        run: |
+          for v in IOS_SUPABASE_URL IOS_SUPABASE_ANON_KEY IOS_REVENUECAT_APPLE_API_KEY; do
+            if [ -z "${!v}" ]; then echo "Missing repo secret: $v" >&2; exit 1; fi
+          done
+          ESCAPED_URL=$(printf '%s' "$IOS_SUPABASE_URL" | sed 's~://~:/$()/~')
+          cat > Config/Secrets.xcconfig <<EOF
+          SUPABASE_URL = $ESCAPED_URL
+          SUPABASE_ANON_KEY = $IOS_SUPABASE_ANON_KEY
+          REVENUECAT_APPLE_API_KEY = $IOS_REVENUECAT_APPLE_API_KEY
+          REVENUECAT_PLUS_PRODUCT_ID = com.immform.relora.plus.monthly
+          REVENUECAT_PRO_PRODUCT_ID = com.immform.relora.pro.monthly
+          REVENUECAT_PLUS_ENTITLEMENT_ID = Relora Plus
+          REVENUECAT_PRO_ENTITLEMENT_ID = Relora Pro
+          EOF
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Install fastlane
+        run: bundle install
+
+      - name: Build and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bundle exec fastlane beta

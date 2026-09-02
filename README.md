@@ -7,6 +7,10 @@ There is no local Mac: the app is authored on Windows and built by
 GitHub Actions (`.github/workflows/ci.yml`). See `CLAUDE.md` for the
 invariants and the TestFlight pipeline.
 
+TestFlight ships via `gh workflow run testflight.yml`. Bump
+`MARKETING_VERSION` in `project.yml` before any dispatch that ships new
+work; build numbers come from `github.run_number`.
+
 The app target (`Relora/`) is a thin shell. All real code lives in the
 local Swift package `ReloraKit/`, split into layers:
 

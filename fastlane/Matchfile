@@ -1,0 +1,9 @@
+# The certificates repo is SHARED with TidyNote (notes-organizer): match
+# reuses the team's one Apple Distribution certificate and only mints a
+# new provisioning profile for this bundle id. A `match nuke` or a
+# MATCH_PASSWORD rotation here breaks both apps' pipelines.
+git_url("https://github.com/jhyang21/notes-organizer-certificates")
+storage_mode("git")
+type("appstore")
+
+app_identifier(["com.immform.relora"])

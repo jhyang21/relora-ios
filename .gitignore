@@ -4,3 +4,6 @@ DerivedData/
 Config/Secrets.xcconfig
 ReloraKit/.build/
 ReloraKit/.swiftpm/
+
+# No Gemfile.lock is committed — see Gemfile for why.
+Gemfile.lock
