@@ -15,6 +15,7 @@ import UIKit
 /// | `title`      | 28 SemiBold      | `.title`      | `typography.heading` |
 /// | `title3`     | 22 SemiBold      | `.title3`     | `typography.title` |
 /// | `body`       | 15 Regular       | `.body`       | `typography.body`  |
+/// | `listBody`   | 17 Regular       | `.body`       | — (new)            |
 /// | `footnote`   | 13 Medium        | `.footnote`   | `typography.label` |
 ///
 /// ## Dynamic Type
@@ -74,6 +75,10 @@ public enum ReloraFont {
 
     /// Body copy — the default for anything a user reads at length. 15 Regular.
     public static let body = Font.custom(Name.regular, size: 15, relativeTo: .body)
+
+    /// Form and list row titles and values. 17 Regular — the system row metric.
+    /// `body` (15) is Relora's reading size and sits visibly small in a native row.
+    public static let listBody = Font.custom(Name.regular, size: 17, relativeTo: .body)
 
     /// Labels, captions, eyebrows, timestamps. 13 Medium. (RN `typography.label`.)
     ///
