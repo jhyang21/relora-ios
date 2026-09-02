@@ -251,6 +251,33 @@ import ReloraData
         let state = try SyncStateStore(database: database).read()
         #expect(state.serverCursor == "2026-01-01T00:00:02.000Z")
     }
+
+    @Test func cursorAdvancesToTheLatestInstantAcrossMixedTimestampShapes() async throws {
+        let database = try AppDatabase.inMemory()
+        let transport = StubSyncTransport()
+        // PostgREST echoes a row this client last wrote as `...Z` with three
+        // fractional digits, and a row the server itself touched as
+        // `+00:00` with five. As Strings the contact sorts above the memory
+        // (`Z` beats any digit); as instants the memory is 0.22 ms later. A
+        // string max would park the cursor before the memory, which the next
+        // `gt.` filter then re-pulls for good.
+        await transport.setServerRows(table: .contacts, rows: [
+            serverContactRow(id: "c1", updatedAt: "2026-01-01T00:00:02.000Z")
+        ])
+        await transport.setServerRows(table: .memories, rows: [
+            serverMemoryRow(id: "m1", contactID: "c1", updatedAt: "2026-01-01T00:00:02.00022+00:00")
+        ])
+        let engine = makeEngine(database: database, transport: transport)
+
+        let outcome = await engine.syncNow(reason: "mixed-shapes")
+        #expect(outcome.kind == .succeeded)
+
+        // The raw server string, not a reformatted one: re-emitting it
+        // through `Date` would drop the sub-millisecond digits that decide
+        // where the `gt.` boundary sits.
+        let state = try SyncStateStore(database: database).read()
+        #expect(state.serverCursor == "2026-01-01T00:00:02.00022+00:00")
+    }
 }
 
 extension StubSyncTransport {
