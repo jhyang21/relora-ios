@@ -147,7 +147,7 @@ private final class CallLog: @unchecked Sendable {
 
 // MARK: - Fixture
 
-private func makeController(
+@MainActor private func makeController(
     authBackend: FakeAuthBackend = FakeAuthBackend(),
     ownershipMigration: FakeOwnershipMigration = FakeOwnershipMigration(),
     guestID: String? = nil,
@@ -165,7 +165,7 @@ private func makeController(
 
 // MARK: - Bootstrap
 
-@Test func bootstrapRestoresAnAccountSessionWithoutAttemptingAnonymousSignIn() async {
+@Test @MainActor func bootstrapRestoresAnAccountSessionWithoutAttemptingAnonymousSignIn() async throws {
     let backend = FakeAuthBackend(currentSession: accountSession(userID: "acct-1"))
     let fixture = makeController(authBackend: backend)
 
@@ -176,7 +176,7 @@ private func makeController(
     #expect(await backend.signInAnonymouslyCallCount == 0)
 }
 
-@Test func bootstrapWithNoSessionAndNoStoredGuestStaysUnresolvedAndCallsNothing() async {
+@Test @MainActor func bootstrapWithNoSessionAndNoStoredGuestStaysUnresolvedAndCallsNothing() async throws {
     // RN boots to identityKind 'none' and identity first appears when
     // onboarding asks for it — bootstrap itself must never mint one.
     let backend = FakeAuthBackend(currentSession: nil, signInAnonymously: .succeed(anonymousSession(userID: "anon-9")))
@@ -190,7 +190,7 @@ private func makeController(
     #expect(try fixture.guestStore.read() == nil)
 }
 
-@Test func beginAnonymousSessionSignsInAnonymouslyFromUnresolved() async {
+@Test @MainActor func beginAnonymousSessionSignsInAnonymouslyFromUnresolved() async throws {
     let backend = FakeAuthBackend(currentSession: nil, signInAnonymously: .succeed(anonymousSession(userID: "anon-9")))
     let fixture = makeController(authBackend: backend)
     await fixture.controller.bootstrap()
@@ -201,7 +201,7 @@ private func makeController(
     #expect(try fixture.guestStore.read() == nil, "a real anonymous session should not be persisted as a local guest id")
 }
 
-@Test func beginAnonymousSessionFallsBackToALocalGuestWhenAnonymousSignInTimesOut() async {
+@Test @MainActor func beginAnonymousSessionFallsBackToALocalGuestWhenAnonymousSignInTimesOut() async throws {
     let backend = FakeAuthBackend(currentSession: nil, signInAnonymously: .hang)
     let fixture = makeController(authBackend: backend, timeout: .milliseconds(20))
     await fixture.controller.bootstrap()
@@ -216,7 +216,7 @@ private func makeController(
     #expect(try fixture.guestStore.read() == userID)
 }
 
-@Test func bootstrapRestoresAStoredLocalGuestWithoutAnyNetworkCall() async {
+@Test @MainActor func bootstrapRestoresAStoredLocalGuestWithoutAnyNetworkCall() async throws {
     let backend = FakeAuthBackend(currentSession: nil)
     let fixture = makeController(authBackend: backend, guestID: "local-guest-resumed")
 
@@ -228,7 +228,7 @@ private func makeController(
 
 // MARK: - ensureLocalGuestSession / beginAnonymousSession
 
-@Test func ensureLocalGuestSessionReusesAnAlreadyStoredID() async {
+@Test @MainActor func ensureLocalGuestSessionReusesAnAlreadyStoredID() async throws {
     let fixture = makeController(guestID: "local-guest-existing")
 
     let userID = await fixture.controller.ensureLocalGuestSession()
@@ -237,7 +237,7 @@ private func makeController(
     #expect(fixture.controller.identity == .localGuest(userID: "local-guest-existing"))
 }
 
-@Test func ensureLocalGuestSessionGeneratesAndPersistsANewIDWhenNoneStored() async {
+@Test @MainActor func ensureLocalGuestSessionGeneratesAndPersistsANewIDWhenNoneStored() async throws {
     let fixture = makeController()
 
     let userID = await fixture.controller.ensureLocalGuestSession()
@@ -247,7 +247,7 @@ private func makeController(
     #expect(fixture.controller.identity == .localGuest(userID: userID))
 }
 
-@Test func beginAnonymousSessionIsANoOpWhenAlreadyLocalGuest() async {
+@Test @MainActor func beginAnonymousSessionIsANoOpWhenAlreadyLocalGuest() async throws {
     let backend = FakeAuthBackend()
     let fixture = makeController(authBackend: backend)
     _ = await fixture.controller.ensureLocalGuestSession()
@@ -257,7 +257,7 @@ private func makeController(
     #expect(await backend.signInAnonymouslyCallCount == 0)
 }
 
-@Test func beginAnonymousSessionIsANoOpForAnAccount() async {
+@Test @MainActor func beginAnonymousSessionIsANoOpForAnAccount() async throws {
     // signInAnonymously() on top of a live account session would replace
     // it with a fresh anonymous user — silently signing the account out.
     let backend = FakeAuthBackend(currentSession: accountSession(userID: "acct-1"), signInAnonymously: .succeed(anonymousSession(userID: "anon-1")))
@@ -270,7 +270,7 @@ private func makeController(
     #expect(fixture.controller.identity == .account(userID: "acct-1", email: "person@example.com"))
 }
 
-@Test func hydratingAnAnonymousSessionOverAStoredGuestMigratesTheGuestsRows() async {
+@Test @MainActor func hydratingAnAnonymousSessionOverAStoredGuestMigratesTheGuestsRows() async throws {
     // RN's stored-guest hydration branch keys on the session's user id,
     // not on account-ness: a stored local guest's rows move into a
     // Supabase-anonymous session too, and the stored id is cleared. This
@@ -295,7 +295,7 @@ private func makeController(
 
 // MARK: - Sign in / sign up ordering and migration
 
-@Test func signInMigratesAStoredGuestAndClearsItsMarker() async {
+@Test @MainActor func signInMigratesAStoredGuestAndClearsItsMarker() async throws {
     let backend = FakeAuthBackend(signInResult: .success(accountSession(userID: "acct-1")))
     let migration = FakeOwnershipMigration()
     let fixture = makeController(authBackend: backend, ownershipMigration: migration, guestID: "local-guest-1")
@@ -311,7 +311,7 @@ private func makeController(
     #expect(try fixture.guestStore.read() == nil)
 }
 
-@Test func signInMigratesAnInMemoryAnonymousIdentityWhenNoStoredGuestExists() async {
+@Test @MainActor func signInMigratesAnInMemoryAnonymousIdentityWhenNoStoredGuestExists() async throws {
     let backend = FakeAuthBackend(currentSession: nil, signInAnonymously: .succeed(anonymousSession(userID: "anon-1")))
     let migration = FakeOwnershipMigration()
     let fixture = makeController(authBackend: backend, ownershipMigration: migration)
@@ -329,7 +329,7 @@ private func makeController(
     #expect(calls.first?.source.hasSuffix("-anonymous") == true)
 }
 
-@Test func everyHydrationResumesAnyPendingMigrationFirst() async {
+@Test @MainActor func everyHydrationResumesAnyPendingMigrationFirst() async throws {
     let backend = FakeAuthBackend(signInResult: .success(accountSession(userID: "acct-1")))
     let migration = FakeOwnershipMigration()
     let fixture = makeController(authBackend: backend, ownershipMigration: migration)
@@ -342,7 +342,7 @@ private func makeController(
     #expect(resumeCalls.first?.source.hasSuffix("-resume") == true)
 }
 
-@Test func signUpThrowsWhenSupabaseDoesNotOpenASession() async {
+@Test @MainActor func signUpThrowsWhenSupabaseDoesNotOpenASession() async throws {
     let backend = FakeAuthBackend(signUpResult: .success(nil))
     let fixture = makeController(authBackend: backend)
 
@@ -352,7 +352,7 @@ private func makeController(
     #expect(fixture.controller.identity == .unresolved)
 }
 
-@Test func signUpHydratesOnASuccessfulSession() async {
+@Test @MainActor func signUpHydratesOnASuccessfulSession() async throws {
     let backend = FakeAuthBackend(signUpResult: .success(accountSession(userID: "acct-3")))
     let fixture = makeController(authBackend: backend)
 
@@ -363,7 +363,7 @@ private func makeController(
 
 // MARK: - Sign out strands rows
 
-@Test func signOutEndsTheSessionWithoutClearingLocalData() async {
+@Test @MainActor func signOutEndsTheSessionWithoutClearingLocalData() async throws {
     let backend = FakeAuthBackend(currentSession: accountSession(userID: "acct-1"))
     let migration = FakeOwnershipMigration()
     let fixture = makeController(authBackend: backend, ownershipMigration: migration)
@@ -382,7 +382,7 @@ private func makeController(
 
 // MARK: - Delete account
 
-@Test func deleteAccountThrowsWhenNoRemoteDeleteIsConfigured() async {
+@Test @MainActor func deleteAccountThrowsWhenNoRemoteDeleteIsConfigured() async throws {
     let migration = FakeOwnershipMigration()
     let fixture = makeController(ownershipMigration: migration)
 
@@ -392,7 +392,7 @@ private func makeController(
     #expect(migration.clearAllLocalDataCallCount == 0)
 }
 
-@Test func deleteAccountRunsRemoteDeleteThenClearsLocalDataThenSignsOut() async {
+@Test @MainActor func deleteAccountRunsRemoteDeleteThenClearsLocalDataThenSignsOut() async throws {
     let backend = FakeAuthBackend(currentSession: accountSession(userID: "acct-1"))
     let migration = FakeOwnershipMigration()
     let fixture = makeController(authBackend: backend, ownershipMigration: migration)
@@ -412,7 +412,7 @@ private func makeController(
 
 // MARK: - Ownership migration retry
 
-@Test func retryOwnershipMigrationClearsThePendingFlagOnSuccess() async {
+@Test @MainActor func retryOwnershipMigrationClearsThePendingFlagOnSuccess() async throws {
     let migration = FakeOwnershipMigration(hasPending: true, resumeOutcome: (.succeeded, "guest-1", "acct-1"))
     let fixture = makeController(ownershipMigration: migration)
 
@@ -421,7 +421,7 @@ private func makeController(
     #expect(fixture.controller.ownershipMigrationPending == false)
 }
 
-@Test func retryOwnershipMigrationLeavesThePendingFlagSetWhenStillDeferred() async {
+@Test @MainActor func retryOwnershipMigrationLeavesThePendingFlagSetWhenStillDeferred() async throws {
     let migration = FakeOwnershipMigration(hasPending: true, resumeOutcome: (.deferred, "guest-1", "acct-1"))
     let fixture = makeController(ownershipMigration: migration)
 
@@ -432,7 +432,7 @@ private func makeController(
 
 // MARK: - Deep links
 
-@Test func handleAuthDeepLinkReturnsNotAuthLinkForAnOrdinaryURL() async {
+@Test @MainActor func handleAuthDeepLinkReturnsNotAuthLinkForAnOrdinaryURL() async throws {
     let fixture = makeController()
 
     let outcome = await fixture.controller.handleAuthDeepLink(URL(string: "relora://home")!)
@@ -441,7 +441,7 @@ private func makeController(
     #expect(fixture.controller.identity == .unresolved)
 }
 
-@Test func handleAuthDeepLinkEstablishesASessionForACodeLink() async {
+@Test @MainActor func handleAuthDeepLinkEstablishesASessionForACodeLink() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .success(accountSession(userID: "acct-7")))
     let fixture = makeController(authBackend: backend)
 
@@ -451,7 +451,7 @@ private func makeController(
     #expect(fixture.controller.identity == .account(userID: "acct-7", email: "person@example.com"))
 }
 
-@Test func handleAuthDeepLinkFlagsPasswordRecoveryOnSuccess() async {
+@Test @MainActor func handleAuthDeepLinkFlagsPasswordRecoveryOnSuccess() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .success(accountSession(userID: "acct-8")))
     let fixture = makeController(authBackend: backend)
     let url = URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!
@@ -462,7 +462,7 @@ private func makeController(
     #expect(fixture.controller.passwordRecoveryStatus == .pending)
 }
 
-@Test func handleAuthDeepLinkReportsPasswordRecoveryFailedWhenTheLinkCannotEstablishASession() async {
+@Test @MainActor func handleAuthDeepLinkReportsPasswordRecoveryFailedWhenTheLinkCannotEstablishASession() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .failure(FakeAuthError()))
     let fixture = makeController(authBackend: backend)
     let url = URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!
@@ -473,7 +473,7 @@ private func makeController(
     #expect(fixture.controller.passwordRecoveryStatus == .error)
 }
 
-@Test func handleAuthDeepLinkReportsFailedForANonRecoveryLinkThatCannotEstablishASession() async {
+@Test @MainActor func handleAuthDeepLinkReportsFailedForANonRecoveryLinkThatCannotEstablishASession() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .failure(FakeAuthError()))
     let fixture = makeController(authBackend: backend)
 
@@ -510,7 +510,7 @@ private func makeController(
 
 // MARK: - AccessTokenProvider
 
-@Test func accessTokenReadsThroughToTheBackendsCurrentSession() async throws {
+@Test @MainActor func accessTokenReadsThroughToTheBackendsCurrentSession() async throws {
     let backend = FakeAuthBackend(currentSession: accountSession(userID: "acct-1"))
     let fixture = makeController(authBackend: backend)
 
@@ -519,7 +519,7 @@ private func makeController(
     #expect(token == "access-acct-1")
 }
 
-@Test func accessTokenIsNilWhenThereIsNoSession() async throws {
+@Test @MainActor func accessTokenIsNilWhenThereIsNoSession() async throws {
     let fixture = makeController()
 
     let token = try await fixture.controller.accessToken()
