@@ -19,6 +19,22 @@ public struct RecordingStore: Sendable {
         case moveFailed(String)
     }
 
+    /// What the store directory holds, for the Settings row.
+    ///
+    /// `bytes` is the sum of logical file sizes, not allocated size:
+    /// block rounding varies by filesystem and a test cannot predict it.
+    /// The number therefore reads a little under what deleting the files
+    /// would give back.
+    public struct Usage: Sendable, Equatable {
+        public let count: Int
+        public let bytes: Int64
+
+        public init(count: Int, bytes: Int64) {
+            self.count = count
+            self.bytes = bytes
+        }
+    }
+
     public static let shared = RecordingStore()
 
     private let directory: URL
@@ -119,5 +135,86 @@ public struct RecordingStore: Sendable {
     public func existingURL(for storedValue: String) -> URL? {
         guard let url = url(for: storedValue) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The names of the regular files in the store directory.
+    ///
+    /// The one place directory enumeration lives, so `RecordingSweep` can
+    /// decide what to delete without ever holding the directory URL.
+    ///
+    /// Empty for a directory that is not there. `contentsOfDirectory`
+    /// throws on a missing directory, and on a fresh install a missing
+    /// directory means the store is empty, not broken.
+    public func storedFileNames() -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return entries.compactMap { url in
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            return values?.isRegularFile == true ? url.lastPathComponent : nil
+        }
+    }
+
+    /// Deletes one stored recording. `true` when a file was there and went.
+    ///
+    /// A name, never a path. A value with a separator in it would reach
+    /// outside the store directory, and nothing outside that directory
+    /// belongs to this type.
+    @discardableResult
+    public func remove(name: String) -> Bool {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else { return false }
+        do {
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(name, isDirectory: false))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Deletes every stored recording and returns how many went.
+    ///
+    /// The store directory only, never the temporary directory: this runs
+    /// on Delete Account, and a temporary file is an in-flight capture
+    /// that belongs to the recorder rather than to any account.
+    ///
+    /// Non-throwing, because its caller is tearing an account down and
+    /// could do nothing with the error but discard it.
+    @discardableResult
+    public func removeAll() -> Int {
+        storedFileNames().reduce(into: 0) { total, name in
+            if remove(name: name) { total += 1 }
+        }
+    }
+
+    /// How many recordings the phone keeps and what they weigh.
+    ///
+    /// Zeros on any error, a missing directory included. The store
+    /// directory only: the Settings row answers "what stays on this
+    /// iPhone", and a temporary file is by definition not kept.
+    public func usage() -> Usage {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return Usage(count: 0, bytes: 0)
+        }
+        var count = 0
+        var bytes: Int64 = 0
+        for url in entries {
+            guard
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                values.isRegularFile == true
+            else {
+                continue
+            }
+            count += 1
+            bytes += Int64(values.fileSize ?? 0)
+        }
+        return Usage(count: count, bytes: bytes)
     }
 }
