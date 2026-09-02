@@ -1,6 +1,7 @@
 import Foundation
 import ReloraCore
 import ReloraData
+import ReloraDesign
 import ReloraServices
 
 /// Drives `SettingsView`. Ports the state and actions `SettingsScreen.tsx`

@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ReloraCore
 import ReloraData
+import ReloraDesign
 import ReloraServices
 
 /// Everything the composer needs that is not state: the recorder, the

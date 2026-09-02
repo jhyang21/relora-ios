@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import GRDB
 import ReloraCore
+import ReloraData
 
 /// Ports `exportDataToJson` (dataControls.ts): the four owned tables' raw
 /// rows for one user, as `{ contacts, keyThings, memories, reminders }`,
