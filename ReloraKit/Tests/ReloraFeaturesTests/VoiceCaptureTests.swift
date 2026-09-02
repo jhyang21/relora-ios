@@ -143,11 +143,9 @@ struct VoiceReviewTests {
 
         #expect(items.map(\.id) == [VoiceReviewItem.memoryDraftID, "kt-1", "kt-2"])
         #expect(items.map(\.kind) == [.memory, .keyThing, .keyThing])
-        let draft = items[0]
-        #expect(draft.text == "Coffee with Ada.")
-        let labels = draft.labels
-        #expect(labels == VoiceReviewItem.memoryLabels)
-        #expect(items.allSatisfy(\.keep))
+        #expect(items[0].text == "Coffee with Ada.")
+        #expect(items[0].labels == VoiceReviewItem.memoryLabels)
+        #expect(try items.allSatisfy(\.keep))
     }
 
     /// With no usable draft the transcript itself becomes the note, so the
