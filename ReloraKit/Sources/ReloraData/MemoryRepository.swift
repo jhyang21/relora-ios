@@ -81,6 +81,35 @@ public struct MemoryRepository: Sendable {
         }
     }
 
+    /// Every `audio_local_uri` a live memory still points at.
+    ///
+    /// Spans every `user_id` on purpose. Recordings are per-device files
+    /// with no owner, and guest-to-account migration re-owns rows without
+    /// touching the files, so a per-user filter would let the sweep delete
+    /// the other identity's recordings.
+    ///
+    /// Throws on a read failure instead of returning an empty set: the
+    /// caller must be able to tell "nothing is referenced" from "the
+    /// references could not be read". The first licenses deletion, the
+    /// second forbids it.
+    public func liveAudioLocalURIs() throws -> Set<String> {
+        try database.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT audio_local_uri FROM memories
+                    WHERE deleted_at IS NULL
+                      AND audio_local_uri IS NOT NULL
+                      AND TRIM(audio_local_uri) <> ''
+                    """
+            )
+            return Set(rows.compactMap { row -> String? in
+                let value: String? = row["audio_local_uri"]
+                return value
+            })
+        }
+    }
+
     /// Tombstones a single memory. See `ContactItemStore.softDelete` for the
     /// shared soft-delete semantics.
     public func softDelete(itemID: String, contactID: String, userID: String) throws -> ContactItemDeleteResult {
