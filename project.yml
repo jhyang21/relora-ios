@@ -42,6 +42,10 @@ targets:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Relora/Info.plist
+        # Marks AppIcon in Assets.xcassets as the app icon so the asset
+        # compiler injects CFBundleIconName; without it App Store upload
+        # fails with ITMS-90713.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Relora/Relora.entitlements
         # Manual signing needs the profile pinned at archive time; gym's
         # export mapping alone is too late. Ignored when
