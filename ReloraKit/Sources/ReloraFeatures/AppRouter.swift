@@ -96,6 +96,11 @@ public enum ReloraDeepLink: Equatable, Sendable {
 /// constraint, not an oversight: two sheets open at once is a SwiftUI bug
 /// generator, and there is no place in this product where a second modal over a
 /// modal is the right answer.
+///
+/// One sanctioned exception: a modal that is itself a workspace may own a
+/// local `.sheet` for its own sub-screens, so that closing a sub-screen
+/// returns to the workspace rather than to Home. `SettingsView.presentedSheet`
+/// and `PaywallView.pendingAuthGate` are the two cases.
 @MainActor
 @Observable
 public final class AppRouter {

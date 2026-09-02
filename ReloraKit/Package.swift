@@ -90,7 +90,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ReloraFeaturesTests",
-            dependencies: ["ReloraFeatures", "ReloraCore", "ReloraData", "ReloraServices"]
+            dependencies: ["ReloraFeatures", "ReloraCore", "ReloraData", "ReloraServices", "ReloraSync"]
         )
     ]
 )

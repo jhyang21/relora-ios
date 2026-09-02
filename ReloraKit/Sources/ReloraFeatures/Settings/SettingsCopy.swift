@@ -1,11 +1,13 @@
 import Foundation
 import ReloraCore
 import ReloraServices
+import ReloraSync
 
 /// Legal links and support contact, ported verbatim from `legalLinks.ts`.
 public enum SettingsLegal {
     public static let privacyPolicyURL = URL(string: "https://reloraapp.com/privacy")!
     public static let termsOfUseURL = URL(string: "https://reloraapp.com/terms-of-use")!
+    public static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
     public static let supportEmail = "contact@immform.com"
 
     public struct SupportEmailContext {
@@ -80,68 +82,67 @@ public enum SettingsConfirmation {
     }
 
     public static let signOut = Dialog(
-        title: "Sign out?",
-        message: "Relora stops syncing on this device and hides your notes until you sign back in. Nothing is deleted — your notes stay in your account and on this device.",
-        confirmLabel: "Sign out"
+        title: "Sign Out?",
+        message: "Syncing stops on this device until you sign back in. Your notes stay in your account.",
+        confirmLabel: "Sign Out"
     )
 
     public static let deleteAccount = Dialog(
-        title: "Delete account?",
-        message: "This permanently deletes your Relora account and everything synced to it, and wipes every contact, memory, key thing, and reminder stored on this device. Scheduled reminder notifications are cancelled. Nothing can be recovered — export your data first if you want a copy.",
+        title: "Delete Account?",
+        message: "This permanently deletes your account, everything synced to it, and every note on this iPhone. Export your data first if you want a copy.",
         confirmLabel: "Delete"
     )
 }
 
-/// Plan-row title and description. Ports `buildPlanSummary`
-/// (planPresentation.ts), with one forced simplification — see the Plus
-/// branch's comment.
+/// Plan-row and Subscription-section copy. Ports `buildPlanSummary`
+/// (planPresentation.ts), split into two pure functions so the Plan row's
+/// value and the section footer can sit in different places on screen.
 public enum SettingsPlanCopy {
-    public struct Summary: Equatable, Sendable {
-        public var title: String
-        public var description: String
+    /// The Plan row's value: "Free", "Plus", "Pro", or "Pro Trial".
+    ///
+    /// Reads `subscription.planID` — the real, RevenueCat-backed plan —
+    /// instead of `evaluation.planID`, so the row can never disagree with
+    /// the billing source of truth, whatever conformer produced the
+    /// evaluation (see the M10 report).
+    public static func planName(_ subscription: SubscriptionSnapshot) -> String {
+        switch subscription.planID {
+        case .free: return "Free"
+        case .plus: return "Plus"
+        case .pro: return subscription.trialIsActive ? "Pro Trial" : "Pro"
+        }
     }
 
-    /// - Parameters:
-    ///   - subscription: `billing.subscriptionSnapshot` — the real,
-    ///     RevenueCat-backed plan. Used for `planID` instead of
-    ///     `evaluation.planID` so the row can never disagree with the
-    ///     billing source of truth, whatever conformer produced the
-    ///     evaluation (see the M10 report).
-    ///   - evaluation: the voice-access evaluation, used only for
-    ///     `freeNotesUsed` — accurate on every plan, since
-    ///     `QuotaPolicy.evaluate` sets `freeNotesUsed = usage.totalProcessedNotes`
-    ///     in all three branches.
-    public static func build(subscription: SubscriptionSnapshot, evaluation: QuotaPolicy.Evaluation) -> Summary {
+    /// The Subscription section's footer: one or two short sentences.
+    ///
+    /// `evaluation` supplies `freeNotesUsed` and `monthlyNotesRemaining` —
+    /// accurate on every plan, since `QuotaPolicy.evaluate` sets
+    /// `freeNotesUsed = usage.totalProcessedNotes` in all three branches.
+    /// For Plus, a populated `monthlyNotesRemaining` renders the exact
+    /// count (RN parity); the one honest `nil` is the pre-`load()`
+    /// placeholder in `SettingsViewModel.init`, which falls back to
+    /// generic copy rather than RN's `?? 0` "100 of 100 used" flash.
+    public static func usageFooter(subscription: SubscriptionSnapshot, evaluation: QuotaPolicy.Evaluation) -> String {
         switch subscription.planID {
-        case .pro:
-            if subscription.trialIsActive {
-                let endDate = subscription.expirationDate.map(Self.formatShortDate)
-                return Summary(
-                    title: endDate.map { "Pro trial — ends \($0)" } ?? "Pro trial",
-                    description: subscription.willRenew
-                        ? "Unlimited voice notes up to 5 minutes. Becomes a paid Pro plan when the trial ends."
-                        : "Unlimited voice notes up to 5 minutes. This trial will not renew."
-                )
-            }
-            return Summary(title: "Pro", description: "Unlimited voice notes, up to 5 minutes each.")
+        case .free:
+            return "\(formatFreeUsageLabel(evaluation.freeNotesUsed)). Voice notes up to 1 minute."
 
         case .plus:
-            // RN shows "12 of 100 notes used this month" — and since M9's
-            // `RevenueCatVoiceAccess` swap, `evaluation` is computed against
-            // the real plan, so `monthlyNotesRemaining` is populated for a
-            // Plus subscriber. (The M10 draft assumed the pre-M9 interim
-            // conformer's always-free evaluation and used generic
-            // copy; corrected in review.) The one honest `nil` left is the
-            // pre-`load()` placeholder in `SettingsViewModel.init` — RN's
-            // `?? 0` would render that as "100 of 100 used" for a frame, so
-            // `nil` keeps the generic line instead of a fabricated count.
             if let monthlyNotesRemaining = evaluation.monthlyNotesRemaining {
-                return Summary(title: "Plus", description: "\(formatPlusMonthlyUsageLabel(monthlyNotesRemaining)). Voice notes up to 1 minute.")
+                return "\(formatPlusMonthlyUsageLabel(monthlyNotesRemaining)). Voice notes up to 1 minute."
             }
-            return Summary(title: "Plus", description: "Voice notes up to 1 minute. Up to \(QuotaPolicy.plusMonthlyNoteLimit) notes a month.")
+            return "Up to \(QuotaPolicy.plusMonthlyNoteLimit) notes a month. Voice notes up to 1 minute."
 
-        case .free:
-            return Summary(title: "Free", description: "\(formatFreeUsageLabel(evaluation.freeNotesUsed)). Voice notes up to 1 minute.")
+        case .pro:
+            guard subscription.trialIsActive else {
+                return "Unlimited voice notes, up to 5 minutes each."
+            }
+            let renewalSentence = subscription.willRenew
+                ? "Becomes a paid Pro plan when the trial ends."
+                : "This trial will not renew."
+            guard let expirationDate = subscription.expirationDate else {
+                return renewalSentence
+            }
+            return "Ends \(formatShortDate(expirationDate)). \(renewalSentence)"
         }
     }
 
@@ -161,7 +162,26 @@ public enum SettingsPlanCopy {
 
     private static func formatShortDate(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
         return formatter.string(from: date)
+    }
+}
+
+/// The Account section's footer: one sentence about sync, always present
+/// so the section never reflows.
+public enum SettingsSyncCopy {
+    public static func footer(_ status: SyncStatus, isOnline: Bool) -> String {
+        switch status {
+        case .syncing:
+            return "Syncing…"
+        case .failed:
+            return isOnline
+                ? "Sync failed. Relora will retry automatically."
+                : "Offline. Relora will retry when you're back online."
+        case .idle:
+            return isOnline
+                ? "Synced."
+                : "Offline. Relora syncs when you're back online."
+        }
     }
 }
