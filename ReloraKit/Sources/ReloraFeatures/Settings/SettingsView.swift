@@ -1,21 +1,20 @@
 import SwiftUI
+import UIKit
 import ReloraCore
 import ReloraData
 import ReloraDesign
 import ReloraServices
 
-/// Ports `SettingsScreen.tsx`. A native `Form`/`Section` layout rather than
-/// RN's hand-styled cards — `AddReminderView` already sets that idiom for a
-/// settings-shaped screen in this codebase, and `Form` gets the
-/// grouped-list chrome, dividers, and safe-area handling RN builds by hand,
-/// for free.
+/// Everything about this install and this account, in one native `Form`.
 ///
-/// Contacts' bulk-import row does not reproduce RN's five-state permission
-/// copy (`loading`/`unavailable`/`undetermined`/`denied`/`granted`): the
-/// `.contactImport` sheet (`ContactImportView`, M?) already requests and
-/// reports `CNContactStore` access itself once opened, so this is a single
-/// entry point into it rather than a second permission state machine kept
-/// in sync with the first.
+/// Rows are single lines: a title, and a value or a control on the right.
+/// The explanation a row needs goes in its section footer rather than
+/// under the title, so no row grows a paragraph and the eye can run down
+/// one column of titles.
+///
+/// Sub-screens (paywall, sign-in, contact import, the export share sheet)
+/// open as a sheet owned here, not through the router. Closing one comes
+/// back to Settings, which is the only sensible place to land.
 public struct SettingsView: View {
     @State private var viewModel: SettingsViewModel
     @Environment(\.openURL) private var openURL
@@ -23,10 +22,11 @@ public struct SettingsView: View {
     @State private var showSignOutConfirm = false
     @State private var showDeleteConfirm = false
 
-    /// Read for one decision only: whether `actionRow` still fits a label and
-    /// a button side by side. See the note there.
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
+    private let database: AppDatabase
+    private let identity: IdentityController
+    private let billing: BillingService
+    private let toasts: ReloraToastCenter
+    private let userIDProvider: () async -> String
     private let router: AppRouter
 
     public init(
@@ -37,6 +37,7 @@ public struct SettingsView: View {
         voiceAccess: any VoiceAccessProviding,
         notifications: NotificationEnvironment,
         toasts: ReloraToastCenter,
+        userIDProvider: @escaping () async -> String,
         router: AppRouter
     ) {
         _viewModel = State(wrappedValue: SettingsViewModel(
@@ -49,33 +50,33 @@ public struct SettingsView: View {
             toasts: toasts,
             router: router
         ))
+        self.database = database
+        self.identity = identity
+        self.billing = billing
+        self.toasts = toasts
+        self.userIDProvider = userIDProvider
         self.router = router
     }
 
     public var body: some View {
         NavigationStack {
             Form {
-                contactsSection
-                remindersSection
-                voicePrivacySection
-                supportLegalSection
-                syncDataSection
-                planSection
                 accountSection
-
-                Section {
-                    HStack {
-                        Spacer()
-                        Text(Self.appVersionLabel)
-                            .font(ReloraFont.footnote)
-                            .foregroundStyle(ReloraColor.mutedInk)
-                        Spacer()
-                    }
+                subscriptionSection
+                notificationsSection
+                voiceSection
+                dataSection
+                supportSection
+                if viewModel.isAccount {
+                    signOutSection
                 }
-                .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .background(ReloraColor.background)
+            // Button rows read their color from here. Setting
+            // `foregroundStyle` on a row instead would also paint it while
+            // disabled, which is the one time it must not.
+            .tint(ReloraColor.accentText)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -85,10 +86,15 @@ public struct SettingsView: View {
             }
         }
         .task { await viewModel.load() }
-        .alert("Notifications permission needed", isPresented: $viewModel.showNotificationPermissionAlert) {
-            Button("OK", role: .cancel) {}
+        .alert("Notifications Are Off", isPresented: $viewModel.showNotificationPermissionAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            Button("Not Now", role: .cancel) {}
         } message: {
-            Text("Allow notifications to turn reminder notifications on.")
+            Text("Turn on notifications for Relora to get reminder alerts.")
         }
         .confirmationDialog(
             SettingsConfirmation.signOut.title,
@@ -114,48 +120,115 @@ public struct SettingsView: View {
         } message: {
             Text(SettingsConfirmation.deleteAccount.message)
         }
-        .sheet(isPresented: exportSheetBinding) {
-            if let exportedFileURL = viewModel.exportedFileURL {
-                ExportShareSheet(fileURL: exportedFileURL)
-            }
+        .sheet(item: $viewModel.presentedSheet, onDismiss: { Task { await viewModel.load() } }) { sheet in
+            sheetView(sheet)
         }
     }
 
-    private var exportSheetBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.exportedFileURL != nil },
-            set: { isPresented in if !isPresented { viewModel.clearExportedFile() } }
-        )
-    }
+    // MARK: - Sub-screens
 
-    // MARK: - Contacts
+    @ViewBuilder
+    private func sheetView(_ sheet: SettingsSheet) -> some View {
+        switch sheet {
+        case .paywall(let reason):
+            PaywallView(reason: reason, billing: billing, identity: identity, toasts: toasts)
 
-    private var contactsSection: some View {
-        Section("Contacts") {
-            actionRow(
-                title: "Bulk import from phone",
-                description: "Choose contacts from your phone to import into Relora.",
-                actionLabel: "Import contacts",
-                action: viewModel.openContactImport
-            )
+        case .authGate(let context):
+            AuthGateView(context: context, identity: identity, toasts: toasts)
+
+        case .contactImport:
+            ContactImportView(database: database, toasts: toasts, userIDProvider: userIDProvider)
+
+        case .export(let url):
+            ExportShareSheet(fileURL: url)
         }
     }
 
-    // MARK: - Reminders
+    // MARK: - Account
 
-    private var remindersSection: some View {
-        Section("Reminders") {
-            Toggle(isOn: reminderNotificationsBinding) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Reminder notifications").font(ReloraFont.body).foregroundStyle(ReloraColor.ink)
-                    Text("Schedule local notifications for future reminders when this is on.")
-                        .font(ReloraFont.footnote)
+    @ViewBuilder
+    private var accountSection: some View {
+        if viewModel.isAccount {
+            Section {
+                Label {
+                    Text(viewModel.accountEmail ?? "Signed in")
+                        .font(ReloraFont.listBody)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } icon: {
+                    Image(systemName: "person.crop.circle")
                         .foregroundStyle(ReloraColor.mutedInk)
                 }
+
+                actionRow("Sync Now", running: viewModel.syncing) {
+                    Task { await viewModel.syncNow() }
+                }
+                .accessibilityValue(Text(viewModel.syncing ? "Syncing" : ""))
+            } footer: {
+                footerText(viewModel.syncFooter)
             }
-            .disabled(viewModel.activeSetting != nil)
-            .tint(ReloraColor.accent)
+            .listRowBackground(ReloraColor.card)
+        } else {
+            Section {
+                actionRow("Create Account or Sign In") { viewModel.openAccountAuth() }
+            } footer: {
+                footerText("Your notes are only on this iPhone until you create an account.")
+            }
+            .listRowBackground(ReloraColor.card)
         }
+    }
+
+    // MARK: - Subscription
+
+    private var subscriptionSection: some View {
+        Section {
+            LabeledContent {
+                Text(viewModel.planName)
+                    .font(ReloraFont.listBody)
+                    .foregroundStyle(ReloraColor.mutedInk)
+            } label: {
+                Text("Plan").font(ReloraFont.listBody)
+            }
+
+            if viewModel.showsSeePlans {
+                actionRow("See Plans") { viewModel.openUpgrade() }
+            }
+
+            if viewModel.showsManageSubscription {
+                linkRow("Manage Subscription", hint: "Opens the App Store") {
+                    open(
+                        SettingsLegal.manageSubscriptionsURL,
+                        failureTitle: "Could not open subscriptions",
+                        failureFallback: "Manage your subscription in Settings, under your Apple Account."
+                    )
+                }
+            }
+
+            actionRow("Restore Purchases", running: viewModel.restoring) {
+                Task { await viewModel.restorePurchases() }
+            }
+        } header: {
+            headerText("Subscription")
+        } footer: {
+            footerText(viewModel.usageFooter)
+        }
+        .listRowBackground(ReloraColor.card)
+    }
+
+    // MARK: - Notifications
+
+    private var notificationsSection: some View {
+        Section {
+            Toggle("Reminder Notifications", isOn: reminderNotificationsBinding)
+                .font(ReloraFont.listBody)
+                .tint(ReloraColor.accent)
+                .disabled(viewModel.togglingReminders)
+        } header: {
+            headerText("Notifications")
+        } footer: {
+            footerText("Get a notification when a reminder is due.")
+        }
+        .listRowBackground(ReloraColor.card)
     }
 
     private var reminderNotificationsBinding: Binding<Bool> {
@@ -165,27 +238,19 @@ public struct SettingsView: View {
         )
     }
 
-    // MARK: - Voice & Privacy
+    // MARK: - Voice
 
-    private var voicePrivacySection: some View {
+    private var voiceSection: some View {
         Section {
-            Toggle(isOn: saveTranscriptsBinding) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Save voice transcripts").font(ReloraFont.body).foregroundStyle(ReloraColor.ink)
-                    Text("Keep the transcript text in saved voice memories for future context.")
-                        .font(ReloraFont.footnote)
-                        .foregroundStyle(ReloraColor.mutedInk)
-                }
-            }
-            .disabled(viewModel.activeSetting != nil)
-            .tint(ReloraColor.accent)
-
-            Text("Voice recordings are sent through Relora's backend to OpenAI for transcription and transcript-based extraction. Relora does not retain raw audio after processing. Saved transcript text is optional and controlled by this setting.")
-                .font(ReloraFont.footnote)
-                .foregroundStyle(ReloraColor.mutedInk)
+            Toggle("Save Transcripts", isOn: saveTranscriptsBinding)
+                .font(ReloraFont.listBody)
+                .tint(ReloraColor.accent)
         } header: {
-            Text("Voice & Privacy")
+            headerText("Voice")
+        } footer: {
+            footerText("Keeps the text of each voice note. Audio is transcribed by OpenAI through Relora's servers and is not kept afterward.")
         }
+        .listRowBackground(ReloraColor.card)
     }
 
     private var saveTranscriptsBinding: Binding<Bool> {
@@ -195,32 +260,56 @@ public struct SettingsView: View {
         )
     }
 
-    // MARK: - Support & Legal
+    // MARK: - Data
 
-    private var supportLegalSection: some View {
-        Section("Support & Legal") {
-            actionRow(
-                title: "Terms of Use",
-                description: "Review the terms that govern use of Relora and its paid plans.",
-                actionLabel: "Open",
-                spokenActionLabel: "Open Terms of Use",
-                action: { open(SettingsLegal.termsOfUseURL, failureTitle: "Could not open terms of use", failureFallback: "Open \(SettingsLegal.termsOfUseURL.absoluteString) in your browser.") }
-            )
-            actionRow(
-                title: "Privacy Policy",
-                description: "See how Relora collects, uses, shares, and deletes your information.",
-                actionLabel: "Open",
-                spokenActionLabel: "Open Privacy Policy",
-                action: { open(SettingsLegal.privacyPolicyURL, failureTitle: "Could not open privacy policy", failureFallback: "Open \(SettingsLegal.privacyPolicyURL.absoluteString) in your browser.") }
-            )
-            actionRow(
-                title: "Contact Support",
-                description: "Email \(SettingsLegal.supportEmail) for help with Relora, billing, or privacy requests.",
-                actionLabel: "Email",
-                spokenActionLabel: "Email support",
-                action: openSupportEmail
-            )
+    private var dataSection: some View {
+        Section {
+            actionRow("Import from Contacts") { viewModel.openContactImport() }
+
+            if viewModel.canExport {
+                actionRow("Export Data") { viewModel.exportData() }
+            }
+        } header: {
+            headerText("Data")
+        } footer: {
+            footerText("Export creates a JSON file of everything stored on this iPhone.")
         }
+        .listRowBackground(ReloraColor.card)
+    }
+
+    // MARK: - Support
+
+    private var supportSection: some View {
+        Section {
+            linkRow("Contact Support", hint: "Opens Mail", action: openSupportEmail)
+
+            linkRow("Terms of Use", hint: "Opens in Safari") {
+                open(
+                    SettingsLegal.termsOfUseURL,
+                    failureTitle: "Could not open terms of use",
+                    failureFallback: "Open \(SettingsLegal.termsOfUseURL.absoluteString) in your browser."
+                )
+            }
+
+            linkRow("Privacy Policy", hint: "Opens in Safari") {
+                open(
+                    SettingsLegal.privacyPolicyURL,
+                    failureTitle: "Could not open privacy policy",
+                    failureFallback: "Open \(SettingsLegal.privacyPolicyURL.absoluteString) in your browser."
+                )
+            }
+
+            LabeledContent {
+                Text(Self.versionLabel)
+                    .font(ReloraFont.listBody)
+                    .foregroundStyle(ReloraColor.mutedInk)
+            } label: {
+                Text("Version").font(ReloraFont.listBody)
+            }
+        } header: {
+            headerText("Support")
+        }
+        .listRowBackground(ReloraColor.card)
     }
 
     private func openSupportEmail() {
@@ -243,176 +332,82 @@ public struct SettingsView: View {
         }
     }
 
-    // MARK: - Sync & Data
+    // MARK: - Sign out
 
-    private var syncDataSection: some View {
-        Section("Sync & Data") {
-            if viewModel.isAccount {
-                actionRow(
-                    title: "Sync now",
-                    description: viewModel.syncStatusLabel,
-                    actionLabel: viewModel.syncing ? "Syncing..." : "Sync now",
-                    disabled: viewModel.syncing,
-                    action: { Task { await viewModel.syncNow() } }
-                )
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Sync").font(ReloraFont.body).foregroundStyle(ReloraColor.ink)
-                    Text("Nothing is backed up yet. Syncing starts when you create an account.")
-                        .font(ReloraFont.footnote)
-                        .foregroundStyle(ReloraColor.mutedInk)
-                }
+    private var signOutSection: some View {
+        Section {
+            actionRow("Sign Out") { showSignOutConfirm = true }
+
+            actionRow("Delete Account", running: viewModel.deletingAccount, role: .destructive) {
+                showDeleteConfirm = true
             }
-
-            actionRow(
-                title: "Export data",
-                description: "Export your local Relora data as a JSON file.",
-                actionLabel: "Export JSON",
-                action: viewModel.exportData
-            )
+        } footer: {
+            footerText("Deleting your account removes everything synced to it and every note on this iPhone.")
         }
-    }
-
-    // MARK: - Plan
-
-    private var planSection: some View {
-        Section("Plan") {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.planSummary.title).font(ReloraFont.body).foregroundStyle(ReloraColor.ink)
-                Text(viewModel.planSummary.description).font(ReloraFont.footnote).foregroundStyle(ReloraColor.mutedInk)
-            }
-
-            if viewModel.planID != .pro {
-                actionRow(
-                    title: "Upgrade your plan",
-                    description: "Unlock more notes, longer captures, and smarter organization.",
-                    actionLabel: "See plans",
-                    action: viewModel.openUpgrade
-                )
-            }
-
-            actionRow(
-                title: "Restore purchases",
-                description: viewModel.isAccount
-                    ? "Already subscribed? Bring back a purchase made with your App Store account."
-                    : "Sign in to restore a purchase made with your App Store account.",
-                actionLabel: viewModel.isAccount ? (viewModel.restoring ? "Restoring..." : "Restore") : "Sign in",
-                disabled: viewModel.restoring,
-                action: { Task { await viewModel.restorePurchases() } }
-            )
-
-            Text("Manage or cancel anytime in your App Store subscription settings.")
-                .font(ReloraFont.footnote)
-                .foregroundStyle(ReloraColor.mutedInk)
-        }
-    }
-
-    // MARK: - Account
-
-    @ViewBuilder
-    private var accountSection: some View {
-        if viewModel.isAccount {
-            Section("Account") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Signed in").font(ReloraFont.body).foregroundStyle(ReloraColor.ink)
-                    Text(viewModel.accountEmail ?? "You are signed in to a Relora account.")
-                        .font(ReloraFont.footnote)
-                        .foregroundStyle(ReloraColor.mutedInk)
-                }
-
-                actionRow(
-                    title: "Sign out",
-                    description: "Stops syncing on this device and hides your notes until you sign back in. Nothing is deleted.",
-                    actionLabel: "Sign out",
-                    action: { showSignOutConfirm = true }
-                )
-
-                actionRow(
-                    title: "Delete account and data",
-                    description: "Permanently deletes your account, everything synced to it, and every note stored on this device. This cannot be undone.",
-                    actionLabel: viewModel.deletingAccount ? "Deleting..." : "Delete",
-                    danger: true,
-                    disabled: viewModel.deletingAccount,
-                    action: { showDeleteConfirm = true }
-                )
-            }
-        } else {
-            Section("Account") {
-                actionRow(
-                    title: "Back up your notes",
-                    description: "Your notes live only on this phone. If you lose it or delete the app, they're gone. Create an account to back them up, or sign in if you already have one.",
-                    actionLabel: "Create account",
-                    action: viewModel.openAccountAuth
-                )
-            }
-        }
+        .listRowBackground(ReloraColor.card)
     }
 
     // MARK: - Row helpers
 
-    // Not `@ViewBuilder`: the body builds its two halves as locals and returns
-    // one arrangement of them, and a result builder is skipped the moment a
-    // body returns explicitly anyway.
     private func actionRow(
-        title: String,
-        description: String,
-        actionLabel: String,
-        // Spoken name for the button when `actionLabel` alone is ambiguous.
-        // VoiceOver can land on the button without ever reading the title
-        // beside it, and two rows that both offer "Open" are identical there.
-        spokenActionLabel: String? = nil,
-        danger: Bool = false,
-        disabled: Bool = false,
+        _ title: String,
+        running: Bool = false,
+        role: ButtonRole? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        let label = VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(ReloraFont.body)
-                .foregroundStyle(danger ? ReloraColor.danger : ReloraColor.ink)
-            Text(description)
-                .font(ReloraFont.footnote)
-                .foregroundStyle(ReloraColor.mutedInk)
-        }
-        .accessibilityElement(children: .combine)
-
-        let button = Button(actionLabel, action: action)
-            .buttonStyle(.bordered)
-            .tint(danger ? ReloraColor.danger : ReloraColor.accent)
-            .disabled(disabled)
-            .accessibilityLabel(spokenActionLabel ?? actionLabel)
-
-        // Side by side until the text stops leaving room for it. "Delete
-        // account and data" beside a "Deleting..." button squeezes both into
-        // a column of syllables at accessibility sizes, so past that
-        // threshold the button drops below the text and takes the full width.
-        //
-        // Chosen over `ViewThatFits` on purpose: these labels wrap, so the
-        // horizontal arrangement technically "fits" at any size — it just
-        // fits badly, which is the one thing `ViewThatFits` cannot see.
-        return Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: ReloraSpacing.sm) {
-                    label
-                    button
-                        .frame(maxWidth: .infinity)
-                }
-            } else {
-                HStack(alignment: .center, spacing: ReloraSpacing.md) {
-                    label
-                    Spacer()
-                    button
+        Button(role: role, action: action) {
+            HStack {
+                Text(title).font(ReloraFont.listBody)
+                Spacer()
+                if running {
+                    ProgressView().controlSize(.small)
                 }
             }
+            .contentShape(Rectangle())
         }
+        .disabled(running)
     }
 
-    private static var rawAppVersion: String {
-        let value = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func linkRow(_ title: String, hint: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).font(ReloraFont.listBody)
+                Spacer()
+                Image(systemName: "arrow.up.forward")
+                    .imageScale(.small)
+                    .foregroundStyle(ReloraColor.mutedInk)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint(hint)
+    }
+
+    private func headerText(_ text: String) -> some View {
+        Text(text)
+            .font(ReloraFont.footnote)
+            .foregroundStyle(ReloraColor.mutedInk)
+    }
+
+    private func footerText(_ text: String) -> some View {
+        Text(text)
+            .font(ReloraFont.footnote)
+            .foregroundStyle(ReloraColor.mutedInk)
+    }
+
+    // MARK: - Bundle
+
+    private static func infoString(_ key: String) -> String {
+        let value = (Bundle.main.infoDictionary?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (value?.isEmpty == false) ? value! : "unknown"
     }
 
-    private static var appVersionLabel: String {
-        "Relora v\(rawAppVersion)"
+    private static var rawAppVersion: String {
+        infoString("CFBundleShortVersionString")
+    }
+
+    private static var versionLabel: String {
+        "\(rawAppVersion) (\(infoString("CFBundleVersion")))"
     }
 
     private static var appName: String {

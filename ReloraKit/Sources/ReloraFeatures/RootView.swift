@@ -198,6 +198,7 @@ public struct RootView: View {
                 voiceAccess: voice.access,
                 notifications: notifications,
                 toasts: toasts,
+                userIDProvider: { await writableUserID() },
                 router: router
             )
 
