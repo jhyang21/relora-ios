@@ -188,7 +188,7 @@ final class AppBootstrap {
         // flagged in the M10 report for team-lead to accept or revert.
         identity.onSignedOut = { [notificationCenter, database, weak identity] in
             await notificationCenter.removeAllPending()
-            guard let userID = identity?.identity.ownerUserID else { return }
+            guard let userID = await identity?.identity.ownerUserID else { return }
             let repository = ReminderRepository(database: database)
             let ids = (try? repository.listFullByUser(userID: userID))?.compactMap(\.notificationID) ?? []
             try? repository.clearNotificationIDs(ids)
