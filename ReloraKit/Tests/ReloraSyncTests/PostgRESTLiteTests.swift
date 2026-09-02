@@ -260,6 +260,38 @@ private func makeClient(token: String? = "test-access-token") -> PostgRESTLite {
     #expect(MockURLProtocol.capturedRequests.isEmpty)
 }
 
+@Test func selectPercentEncodesEveryReservedCharacterInFilterValues() async throws {
+    MockURLProtocol.reset()
+    MockURLProtocol.handler = { _ in .init(statusCode: 200, body: Data("[]".utf8)) }
+
+    let cursor = "gt.2026-09-02T09:15:43.60222+00:00"
+    let client = makeClient()
+    _ = try await client.select(
+        table: "contacts",
+        filters: [
+            URLQueryItem(name: "user_id", value: "eq.abc"),
+            URLQueryItem(name: "updated_at", value: cursor),
+            URLQueryItem(name: "name", value: "eq.Ada Lovelace"),
+        ],
+        order: "updated_at.asc,id.asc",
+        range: (from: 0, to: 499)
+    )
+
+    let request = try #require(MockURLProtocol.capturedRequests.first?.request)
+    let query = try #require(request.url?.query)
+    // A bare `+` is the bug: PostgREST decodes it as a space, so the offset
+    // reaches Postgres as `... 00:00` and the timestamptz filter is rejected.
+    #expect(!query.contains("+"))
+    #expect(query.contains("%2B00%3A00"))
+    #expect(query.contains("%20"))
+
+    // Still a well-formed query — the cursor decodes back byte for byte.
+    let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+    let items = try #require(components?.queryItems)
+    #expect(items.contains(URLQueryItem(name: "updated_at", value: cursor)))
+    #expect(items.contains(URLQueryItem(name: "name", value: "eq.Ada Lovelace")))
+}
+
 // MARK: - Error envelope decoding
 
 @Test func decodesPostgRESTErrorShapeOn409() async throws {

@@ -120,7 +120,7 @@ public final class PostgRESTLite: Sendable {
             let quoted = columns.map { "\"\($0)\"" }.joined(separator: ",")
             queryItems.append(URLQueryItem(name: "columns", value: quoted))
         }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        components.setStrictlyEncodedQueryItems(queryItems)
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
@@ -164,7 +164,7 @@ public final class PostgRESTLite: Sendable {
         }
         queryItems.append(URLQueryItem(name: "offset", value: String(range.from)))
         queryItems.append(URLQueryItem(name: "limit", value: String(range.to - range.from + 1)))
-        components.queryItems = queryItems
+        components.setStrictlyEncodedQueryItems(queryItems)
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"

@@ -62,7 +62,7 @@ public struct PostgRESTUsageQuery: ServerUsageQuerying {
         ) else {
             throw BackendError(code: BackendError.invalidResponse, message: "Could not build the usage-query URL.", httpStatus: 0)
         }
-        components.queryItems = [URLQueryItem(name: "select", value: "*")] + filters
+        components.setStrictlyEncodedQueryItems([URLQueryItem(name: "select", value: "*")] + filters)
         guard let url = components.url else {
             throw BackendError(code: BackendError.invalidResponse, message: "Could not build the usage-query URL.", httpStatus: 0)
         }
