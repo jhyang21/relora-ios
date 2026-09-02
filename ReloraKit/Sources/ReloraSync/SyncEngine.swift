@@ -395,11 +395,7 @@ public actor SyncEngine {
         var maxPulledUpdatedAt: String?
         for pulled in pulledTables {
             guard let candidate = pulled.maxUpdatedAt else { continue }
-            guard let current = maxPulledUpdatedAt else {
-                maxPulledUpdatedAt = candidate
-                continue
-            }
-            if Self.isLaterInstant(candidate, than: current) {
+            if Self.isLaterInstant(candidate, than: maxPulledUpdatedAt) {
                 maxPulledUpdatedAt = candidate
             }
         }
@@ -463,22 +459,19 @@ public actor SyncEngine {
         var maxUpdatedAt: String?
         for row in rows {
             guard case .string(let updatedAt)? = row["updated_at"] else { continue }
-            guard let current = maxUpdatedAt else {
-                maxUpdatedAt = updatedAt
-                continue
-            }
-            if Self.isLaterInstant(updatedAt, than: current) {
+            if Self.isLaterInstant(updatedAt, than: maxUpdatedAt) {
                 maxUpdatedAt = updatedAt
             }
         }
         return PulledTable(table: table, rows: rows, maxUpdatedAt: maxUpdatedAt)
     }
 
-    /// Whether `candidate` is a later instant than `current`. Falls back to
-    /// string order when either value fails to parse — the same order the
-    /// rest of this engine uses, and the only order left when there is no
-    /// instant to compare.
-    private static func isLaterInstant(_ candidate: String, than current: String) -> Bool {
+    /// Whether `candidate` is a later instant than `current`, and always true
+    /// when there is no `current` yet. Falls back to string order when either
+    /// value fails to parse — the same order the rest of this engine uses,
+    /// and the only order left when there is no instant to compare.
+    private static func isLaterInstant(_ candidate: String, than current: String?) -> Bool {
+        guard let current else { return true }
         guard let candidateMs = FlexibleTimestamp.epochMilliseconds(candidate),
               let currentMs = FlexibleTimestamp.epochMilliseconds(current) else {
             return candidate > current
