@@ -34,7 +34,8 @@ public final class SupabaseAuthBackend: AuthBackend {
     public init(config: BackendConfig) {
         self.client = AuthClient(
             url: config.supabaseURL.appendingPathComponent("auth/v1"),
-            headers: ["apikey": config.anonKey]
+            headers: ["apikey": config.anonKey],
+            localStorage: KeychainLocalStorage()
         )
     }
 

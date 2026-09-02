@@ -29,7 +29,7 @@ public struct OwnershipMigrationAdapter: OwnershipMigrating {
     }
 
     public func runMigration(fromUserID: String, toUserID: String, source: String) async -> OwnershipMigrationOutcome {
-        OwnershipMigrationOutcome(migration.runMigration(fromUserID: fromUserID, toUserID: toUserID, source: source))
+        OwnershipMigrationOutcome(await migration.runMigration(fromUserID: fromUserID, toUserID: toUserID, source: source))
     }
 
     public func resumePendingMigrationIfAny(

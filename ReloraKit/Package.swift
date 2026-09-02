@@ -15,9 +15,12 @@ let package = Package(
         .library(name: "ReloraFeatures", targets: ["ReloraFeatures"])
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/supabase/supabase-swift.git", from: "2.0.0"),
-        .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", from: "5.0.0")
+        // Pinned exact: the generated xcodeproj resolves dependencies through
+        // its own gitignored workspace file, so these pins are the only
+        // version lock CI honors. Bump deliberately, never by drift.
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
+        .package(url: "https://github.com/supabase/supabase-swift.git", exact: "2.55.1"),
+        .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", exact: "5.87.1")
     ],
     targets: [
         .target(
