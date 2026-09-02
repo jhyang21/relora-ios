@@ -216,16 +216,15 @@ public final class PostgRESTLite: Sendable {
         }
     }
 
+    /// Sorted, because Swift's `Dictionary` iterates in no fixed order —
+    /// postgrest-js gets a stable order for free from JS object insertion
+    /// order, and PostgREST itself does not care which order the list is in.
     private static func unionOfKeys(_ rows: [JSONObject]) -> [String] {
         var seen = Set<String>()
-        var ordered: [String] = []
         for row in rows {
-            for key in row.keys where !seen.contains(key) {
-                seen.insert(key)
-                ordered.append(key)
-            }
+            seen.formUnion(row.keys)
         }
-        return ordered
+        return seen.sorted()
     }
 
     /// Decodes a non-2xx response into `BackendError`, trying each shape

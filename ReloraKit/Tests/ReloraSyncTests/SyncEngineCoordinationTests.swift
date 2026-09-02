@@ -94,8 +94,14 @@ private final class OnlineFlag: @unchecked Sendable {
         try await Task.sleep(nanoseconds: 15_000_000)
         await engine.noteLocalWrite(reason: "c")
 
-        // Wait comfortably past the debounce window measured from the last call.
-        try await Task.sleep(nanoseconds: 150_000_000)
+        // Wait for the debounced sync to run — a fixed sleep is not enough
+        // on a loaded CI runner — then hold a further two debounce windows
+        // open so a second, spurious firing would land before the assert.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await transport.pullQueries.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
 
         // Every sync issues exactly one pull query per table (the stub has no
         // server rows, so each page comes back short immediately); a count
