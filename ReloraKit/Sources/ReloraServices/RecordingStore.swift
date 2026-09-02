@@ -51,9 +51,8 @@ public struct RecordingStore: Sendable {
     ///
     /// Idempotent for a retried save: if the destination already exists
     /// and the source is gone, the earlier move already succeeded, so
-    /// this returns the name without touching the file. If the source is
-    /// `temporaryURL` is already the destination, it also just returns
-    /// the name.
+    /// this returns the name without touching the file. If `temporaryURL`
+    /// is already the destination, it also just returns the name.
     public func store(temporaryURL: URL) throws -> String {
         let name = temporaryURL.lastPathComponent
         let destination = directory.appendingPathComponent(name, isDirectory: false)
@@ -111,10 +110,6 @@ public struct RecordingStore: Sendable {
         if value.hasPrefix("file://") {
             guard let url = URL(string: value), url.isFileURL else { return nil }
             return url
-        }
-
-        if value.hasPrefix("/") {
-            return URL(fileURLWithPath: value)
         }
 
         return directory.appendingPathComponent(value, isDirectory: false)

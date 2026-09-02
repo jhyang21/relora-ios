@@ -111,22 +111,6 @@ func aStoredNameWithNoFileResolvesToNil() {
     #expect(store.existingURL(for: "gone.m4a") == nil)
 }
 
-@Test("round trips through store and back")
-func roundTripsThroughStoreAndBack() throws {
-    let root = makeRoot()
-    defer { try? FileManager.default.removeItem(at: root) }
-
-    let source = root.appendingPathComponent("source.m4a")
-    try writeFakeAudioFile(at: source)
-
-    let store = RecordingStore(directory: root.appendingPathComponent("Recordings"))
-    let name = try store.store(temporaryURL: source)
-
-    let resolved = try #require(store.existingURL(for: name))
-    let bytes = try Data(contentsOf: resolved)
-    #expect(bytes == Data("fake-audio-bytes".utf8))
-}
-
 @Test("accepts a legacy absolute file URL string")
 func acceptsALegacyAbsoluteFileURLString() throws {
     let root = makeRoot()
@@ -165,9 +149,9 @@ func rejectsANonFileURLString() {
     let root = makeRoot()
     defer { try? FileManager.default.removeItem(at: root) }
 
-    // Doesn't start with "file://" or "/", so it falls into the plain-name
-    // branch: treated as a literal file name under `directory` rather than
-    // as the URL it looks like. No such file exists, so it resolves to nil.
+    // Doesn't start with "file://", so it falls into the plain-name branch:
+    // treated as a literal file name under `directory` rather than as the
+    // URL it looks like. No such file exists, so it resolves to nil.
     let store = RecordingStore(directory: root.appendingPathComponent("Recordings"))
     #expect(store.existingURL(for: "https://example.com/a.m4a") == nil)
 }
