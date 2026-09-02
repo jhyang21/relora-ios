@@ -271,7 +271,9 @@ public struct SettingsView: View {
         } header: {
             headerText("Data")
         } footer: {
-            footerText("Export creates a JSON file of everything stored on this iPhone.")
+            if viewModel.canExport {
+                footerText("Export creates a JSON file of everything stored on this iPhone.")
+            }
         }
         .listRowBackground(ReloraColor.card)
     }
