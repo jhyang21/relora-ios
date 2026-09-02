@@ -443,9 +443,16 @@ public actor SyncEngine {
         guard !rows.isEmpty else { return PulledTable(table: table, rows: [], maxUpdatedAt: nil) }
 
         // String comparison, not date parsing — matches fetchTableSince's
-        // own `updatedAt > maxUpdatedAt` in syncEngine.ts. Valid because
-        // PostgREST emits a single consistent timestamptz string shape, so
-        // lexicographic order matches chronological order.
+        // own `updatedAt > maxUpdatedAt` in syncEngine.ts. PostgREST echoes
+        // two shapes here: a row this client last wrote comes back as
+        // `…602Z`, a row the server touched as `…60222+00:00` (trailing
+        // zeros trimmed). String order never overshoots the true maximum:
+        // within one shape it is chronological, and across shapes the only
+        // disagreement is a `Z` value sorting above a `+00:00` value that
+        // is later by under a millisecond. The cursor then sits at or
+        // before the true max, and the next `gt.` pull fetches that
+        // sub-millisecond row and converges. Parsing would not do better:
+        // `FlexibleTimestamp` resolves milliseconds only.
         var maxUpdatedAt: String?
         for row in rows {
             if case .string(let updatedAt)? = row["updated_at"],

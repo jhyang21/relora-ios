@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import os
+import ReloraCore
 import ReloraData
 import ReloraServices
 import ReloraSync
@@ -36,6 +38,11 @@ public final class SyncOrchestrator {
     @ObservationIgnored private let reminders: ReminderRepository
     @ObservationIgnored private let cancelNotifications: @Sendable ([String]) async -> Void
     @ObservationIgnored private var statusTask: Task<Void, Never>?
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.immform.relora",
+        category: "sync"
+    )
 
     public init(
         engine: SyncEngine,
@@ -90,12 +97,31 @@ public final class SyncOrchestrator {
     /// that throws an alert at someone is a gesture punished for being used.
     public func sync(reason: String) async {
         let outcome = await engine.syncNow(reason: reason)
+        if case .failed(let failure) = outcome.kind {
+            log(failure, reason: reason)
+        }
 
         let notificationIDs = outcome.pulledReminderTombstoneNotificationIDs
         guard !notificationIDs.isEmpty else { return }
 
         await cancelNotifications(notificationIDs)
         try? reminders.clearNotificationIDs(notificationIDs)
+    }
+
+    /// The banner `status` drives says only that sync failed. Without this a
+    /// user reporting "it stopped syncing" leaves nothing to read — the
+    /// backend's own code and status are what tell a rejected filter apart
+    /// from an expired session. Rows and identities stay out of it: what is
+    /// logged is the shape of the failure, not the data.
+    private func log(_ failure: SyncFailure, reason: String) {
+        switch failure {
+        case .authRequired(let error), .backend(let error):
+            Self.logger.error(
+                "sync failed reason=\(reason, privacy: .public) code=\(error.code, privacy: .public) status=\(error.httpStatus, privacy: .public) message=\(error.message, privacy: .public)"
+            )
+        case .other(let text):
+            Self.logger.error("sync failed reason=\(reason, privacy: .public) error=\(text, privacy: .public)")
+        }
     }
 
     /// Wires this orchestrator to an identity controller, so a session arriving
