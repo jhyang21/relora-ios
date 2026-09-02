@@ -58,7 +58,7 @@ import ReloraData
         _ = await engine.syncNow(reason: "test")
 
         let queries = await transport.pullQueries.filter { $0.table == .contacts }
-        #expect(queries.map { ($0.from, $0.to) } == [(0, 1), (2, 3), (4, 5)])
+        #expect(queries.map { ($0.from, $0.to) }.elementsEqual([(0, 1), (2, 3), (4, 5)], by: ==))
 
         let count = try database.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM contacts")! }
         #expect(count == 5)
@@ -194,8 +194,10 @@ import ReloraData
 
         // But nothing is dirty after the first pull.
         try database.read { db in
-            #expect(try SyncFixtures.dirtyCount(db, table: .contacts) == 0)
-            #expect(try SyncFixtures.dirtyCount(db, table: .memories) == 0)
+            let dirtyContacts = try SyncFixtures.dirtyCount(db, table: .contacts)
+            let dirtyMemories = try SyncFixtures.dirtyCount(db, table: .memories)
+            #expect(dirtyContacts == 0)
+            #expect(dirtyMemories == 0)
         }
 
         let second = await engine.syncNow(reason: "second")
@@ -212,8 +214,10 @@ import ReloraData
         #expect(pushedAnything.isEmpty)
 
         try database.read { db in
-            #expect(try SyncFixtures.dirtyCount(db, table: .contacts) == 0)
-            #expect(try SyncFixtures.dirtyCount(db, table: .memories) == 0)
+            let dirtyContacts = try SyncFixtures.dirtyCount(db, table: .contacts)
+            let dirtyMemories = try SyncFixtures.dirtyCount(db, table: .memories)
+            #expect(dirtyContacts == 0)
+            #expect(dirtyMemories == 0)
         }
 
         // The cursor did not regress or get corrupted by the trigger bump.
