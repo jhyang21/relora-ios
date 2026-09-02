@@ -247,7 +247,7 @@ public struct SettingsView: View {
         } header: {
             headerText("Voice")
         } footer: {
-            footerText("Keeps the text of each voice note. Audio is transcribed by OpenAI through Relora's servers and is not kept afterward.")
+            footerText("Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Relora's servers transcribe the audio and do not keep it.")
         }
         .listRowBackground(ReloraColor.card)
     }

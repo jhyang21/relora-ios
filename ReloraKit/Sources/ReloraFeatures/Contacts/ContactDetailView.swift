@@ -115,23 +115,10 @@ public struct ContactDetailView: View {
             } else {
                 Section {
                     ForEach(model.snapshot.memories, id: \.id) { memory in
-                        // One row, not two: `.swipeDelete` swipes whatever
-                        // it is attached to, so the replay pill has to sit
-                        // inside the same `VStack` as the row rather than
-                        // beside it in the `ForEach`, or only the row above
-                        // it would swipe.
-                        VStack(alignment: .leading, spacing: ReloraSpacing.xs) {
-                            ContactItemRow(
-                                title: memory.text,
-                                meta: ReloraRelativeTime.friendlyDateTime(memory.createdAt, now: nowISO)
-                            )
-                            if let audioLocalURI = memory.audioLocalURI, let url = URL(string: audioLocalURI) {
-                                AudioReplayPill(url: url)
+                        MemoryRow(memory: memory, nowISO: nowISO)
+                            .swipeDelete(kind: .memory) {
+                                model.deleteItem(id: memory.id, kind: .memory)
                             }
-                        }
-                        .swipeDelete(kind: .memory) {
-                            model.deleteItem(id: memory.id, kind: .memory)
-                        }
                     }
                 }
             }
@@ -246,6 +233,68 @@ struct ContactDetailHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, ReloraSpacing.sm)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// One memory in the timeline: what was written down and when, the transcript
+/// it came from behind a disclosure, and the replay control if there is audio.
+///
+/// One root view, because `.swipeDelete` swipes whatever it is attached to —
+/// the disclosure and the pill have to sit inside this `VStack` rather than
+/// beside the row in the `ForEach`, or only the row above them would swipe.
+/// Expansion is per-row `@State`, so opening one transcript redraws that row
+/// alone, and `ForEach(id: \.id)` keeps each row's identity across a reload so
+/// an open transcript stays open. No `ReloraCard` — a list row is already a
+/// surface — and deliberately no `.accessibilityElement(children: .combine)`,
+/// which would swallow the disclosure button; `ContactItemRow` already
+/// combines its own two texts.
+struct MemoryRow: View {
+    let memory: Memory
+    let nowISO: String
+
+    @State private var isTranscriptExpanded = false
+
+    /// Absent rather than empty: a guest's capture and a dropped extraction
+    /// both arrive as blank text, and a control that opens onto nothing is
+    /// worse than no control.
+    private var transcript: String? {
+        guard let text = memory.transcript?.trimmed, !text.isEmpty else { return nil }
+        return text
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ReloraSpacing.xs) {
+            ContactItemRow(
+                title: memory.text,
+                meta: ReloraRelativeTime.friendlyDateTime(memory.createdAt, now: nowISO)
+            )
+
+            if let transcript {
+                DisclosureGroup(isExpanded: $isTranscriptExpanded) {
+                    Text(transcript)
+                        .font(ReloraFont.footnote)
+                        .foregroundStyle(ReloraColor.mutedInk)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, ReloraSpacing.xs)
+                } label: {
+                    Text(VoiceCaptureCopy.transcriptDisclosure)
+                        .font(ReloraFont.footnote)
+                        .foregroundStyle(ReloraColor.accentText)
+                }
+                .tint(ReloraColor.accentText)
+                .reloraAnimation(.gentle, value: isTranscriptExpanded)
+            }
+
+            // Gated here rather than inside `AudioReplayPill`, because the
+            // pill's other caller — the review screen, showing the recording
+            // just made — must show it whatever the disk says. And the check
+            // belongs to the store: whether a stored value is a legacy
+            // absolute `file://` string or a bare file name is storage
+            // knowledge, and only the store knows where the names resolve.
+            if let url = RecordingStore.shared.existingURL(for: memory.audioLocalURI ?? "") {
+                AudioReplayPill(url: url)
+            }
+        }
     }
 }
 

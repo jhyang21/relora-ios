@@ -181,6 +181,13 @@ catalog in `ReloraCore/Backend.swift` — one catalog, no string forks.
   cache URI the same way). A dead file degrades to the disabled replay
   pill. If Andrew wants durable replay, that is a product change (move
   to Application Support + relative path), not a porting fix.
+- **Durable replay landed in 2.2.0.** `RecordingStore` (ReloraServices)
+  moves a finished recording out of `temporaryDirectory` into
+  Application Support, and `audio_local_uri` now stores the file name,
+  not an absolute path — so a recording survives a tmp purge and an app
+  update, whose container path changes. Legacy absolute `file://` rows
+  still resolve, and the contact timeline shows the replay pill only
+  when the store finds the file on disk.
 
 ## M8 outcomes (M8b, M9, M10, and the final report)
 
