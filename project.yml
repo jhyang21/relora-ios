@@ -1,0 +1,64 @@
+name: Relora
+options:
+  bundleIdPrefix: com.immform
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  ReloraKit:
+    path: ReloraKit
+
+targets:
+  Relora:
+    type: application
+    platform: iOS
+    sources:
+      - path: Relora
+        excludes:
+          - "Fonts/README.md"
+    dependencies:
+      # The app target is the composition root: it builds the database, the
+      # identity controller, and the sync engine before handing everything to
+      # ReloraFeatures, so it links each of those products directly.
+      - package: ReloraKit
+        product: ReloraFeatures
+      - package: ReloraKit
+        product: ReloraCore
+      - package: ReloraKit
+        product: ReloraData
+      - package: ReloraKit
+        product: ReloraDesign
+      - package: ReloraKit
+        product: ReloraServices
+      - package: ReloraKit
+        product: ReloraSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.immform.relora
+        MARKETING_VERSION: "2.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Relora/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Relora/Relora.entitlements
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+
+schemes:
+  Relora:
+    build:
+      targets:
+        Relora: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

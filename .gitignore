@@ -1,0 +1,6 @@
+Relora.xcodeproj/
+DerivedData/
+.DS_Store
+Config/Secrets.xcconfig
+ReloraKit/.build/
+ReloraKit/.swiftpm/

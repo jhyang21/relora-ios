@@ -1,0 +1,4 @@
+// Settings shared by Debug and Release.
+
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+SWIFT_STRICT_CONCURRENCY = complete

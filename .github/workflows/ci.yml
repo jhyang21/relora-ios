@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.4.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.4.1.app
+          else
+            echo "Xcode_26.4.1.app not found on this runner; using default Xcode."
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # CI never needs real secrets: the app boots into offline mode with the
+      # example placeholders, and copying the file keeps the Info.plist
+      # $(VAR) substitutions deterministic.
+      - name: Placeholder secrets
+        run: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+
+      - name: Discover an iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          DEVICE_INFO=$(xcrun simctl list devices available --json | jq -r '
+            .devices
+            | to_entries[]
+            | select(.key | contains("iOS"))
+            | .value[]
+            | select(.isAvailable == true and (.name | startswith("iPhone")))
+            | "\(.udid)|\(.name)"
+          ' | head -n1)
+          if [ -z "$DEVICE_INFO" ]; then
+            echo "No available iPhone simulator found." >&2
+            xcrun simctl list runtimes
+            exit 1
+          fi
+          UDID="${DEVICE_INFO%%|*}"
+          NAME="${DEVICE_INFO##*|}"
+          echo "Selected simulator: $NAME ($UDID)"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Build Relora app (unsigned)
+        run: |
+          xcodebuild build \
+            -project Relora.xcodeproj \
+            -scheme Relora \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test ReloraKit
+        run: |
+          cd ReloraKit
+          xcodebuild test \
+            -scheme ReloraKit-Package \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
+
+      # SPM resolution happens before compilation, so these files exist even
+      # when the build fails — dependency versions can be pinned from run #1.
+      - name: Show resolved package versions
+        if: always()
+        run: |
+          for f in \
+            ReloraKit/Package.resolved \
+            Relora.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved; do
+            if [ -f "$f" ]; then echo "==== $f ===="; cat "$f"; fi
+          done
+
+      - name: Upload Package.resolved
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-resolved
+          path: |
+            ReloraKit/Package.resolved
+            Relora.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if-no-files-found: ignore

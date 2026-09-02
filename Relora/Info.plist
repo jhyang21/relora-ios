@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Relora</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.immform.relora</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>relora</string>
+			</array>
+		</dict>
+	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>DMSans-Regular.ttf</string>
+		<string>DMSans-Medium.ttf</string>
+		<string>DMSans-SemiBold.ttf</string>
+		<string>DMSans-Bold.ttf</string>
+	</array>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Relora uses your microphone so you can capture voice notes.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Relora uses your contacts so you can import selected phone contacts into Relora.</string>
+	<key>SupabaseURL</key>
+	<string>$(SUPABASE_URL)</string>
+	<key>SupabaseAnonKey</key>
+	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>RevenueCatAppleApiKey</key>
+	<string>$(REVENUECAT_APPLE_API_KEY)</string>
+	<key>RevenueCatPlusProductId</key>
+	<string>$(REVENUECAT_PLUS_PRODUCT_ID)</string>
+	<key>RevenueCatProProductId</key>
+	<string>$(REVENUECAT_PRO_PRODUCT_ID)</string>
+	<key>RevenueCatPlusEntitlementId</key>
+	<string>$(REVENUECAT_PLUS_ENTITLEMENT_ID)</string>
+	<key>RevenueCatProEntitlementId</key>
+	<string>$(REVENUECAT_PRO_ENTITLEMENT_ID)</string>
+</dict>
+</plist>

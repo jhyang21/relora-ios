@@ -1,0 +1,4 @@
+#include "Base.xcconfig"
+
+// Secrets.xcconfig is gitignored. Copy Secrets.example.xcconfig and fill it in.
+#include? "Secrets.xcconfig"
