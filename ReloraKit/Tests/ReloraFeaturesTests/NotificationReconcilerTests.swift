@@ -190,14 +190,15 @@ struct NotificationReconcilerTests {
         #expect(await center.scheduled.isEmpty)
     }
 
-    @Test("Never schedules the tutorial seed's fixed reminder, identified by its title")
+    @Test("Never schedules the tutorial seed's reminder, identified by its row id in app settings")
     func neverSchedulesTutorialReminder() async throws {
         let database = try AppDatabase.inMemory()
         let contact = try makeContact(database)
         let center = FakeNotificationCenter(status: .authorized)
 
-        let tutorial = reminder(contactID: contact.id, title: NotificationReconciler.tutorialReminderTitle, remindAt: future())
+        let tutorial = reminder(contactID: contact.id, title: "Say hi to your example contact", remindAt: future())
         try ReminderRepository(database: database).upsert(tutorial)
+        try AppSettingsStore(database: database).setRawValue(.onboardingTutorialReminderID, tutorial.id)
 
         await makeReconciler(database: database, center: center).rescheduleAll(userID: contact.userID, trigger: .coldLaunch, now: now)
 
