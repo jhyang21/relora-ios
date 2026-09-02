@@ -244,6 +244,14 @@ public struct SettingsView: View {
             Toggle("Save Transcripts", isOn: saveTranscriptsBinding)
                 .font(ReloraFont.listBody)
                 .tint(ReloraColor.accent)
+
+            LabeledContent {
+                Text(viewModel.recordingsValue)
+                    .font(ReloraFont.listBody)
+                    .foregroundStyle(ReloraColor.mutedInk)
+            } label: {
+                Text("Recordings").font(ReloraFont.listBody)
+            }
         } header: {
             headerText("Voice")
         } footer: {
