@@ -139,7 +139,7 @@ struct RankingTests {
     func ignoresDismissedOrDeletedReminders() {
         let contacts = [Self.makeContact(id: "1", name: "A"), Self.makeContact(id: "2", name: "B")]
         let reminders = [
-            Self.makeReminder(contactID: "1", status: .dismissed, remindAt: "2026-03-09T10:00:00.000Z"),
+            Self.makeReminder(contactID: "1", remindAt: "2026-03-09T10:00:00.000Z", status: .dismissed),
             Self.makeReminder(contactID: "1", remindAt: "2026-03-10T10:00:00.000Z"),
             Self.makeReminder(contactID: "2", remindAt: "2026-03-08T10:00:00.000Z", deletedAt: "2026-03-01T00:00:00.000Z"),
         ]
