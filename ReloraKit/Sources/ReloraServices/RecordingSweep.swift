@@ -65,7 +65,10 @@ public struct RecordingSweep: Sendable {
     }
 
     public func run(referencedValues: Set<String>, now: Date = Date()) -> Result {
-        let referenced = Set(referencedValues.compactMap { Self.fileName(from: $0) })
+        // `store.url(for:)` reads both shapes the column holds — the bare
+        // file name written since 2.2.0 and the legacy absolute `file://`
+        // string older rows still carry — so that rule lives in one place.
+        let referenced = Set(referencedValues.compactMap { store.url(for: $0)?.lastPathComponent })
         let cutoff = now.addingTimeInterval(-grace)
 
         var removed = 0
@@ -106,19 +109,6 @@ public struct RecordingSweep: Sendable {
         }
 
         return Result(removed: removed, kept: kept)
-    }
-
-    /// The file name a stored `audio_local_uri` names.
-    ///
-    /// Handles both shapes the column holds: the file name written since
-    /// 2.2.0, and the absolute `file://` string older rows still carry.
-    private static func fileName(from value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("file://") {
-            return URL(string: trimmed)?.lastPathComponent
-        }
-        return trimmed
     }
 
     /// The temporary files the recorder wrote, and nothing else.

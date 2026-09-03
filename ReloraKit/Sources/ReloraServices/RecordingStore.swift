@@ -196,25 +196,13 @@ public struct RecordingStore: Sendable {
     /// directory only: the Settings row answers "what stays on this
     /// iPhone", and a temporary file is by definition not kept.
     public func usage() -> Usage {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return Usage(count: 0, bytes: 0)
+        let names = storedFileNames()
+        let bytes = names.reduce(into: Int64(0)) { total, name in
+            let values = try? directory
+                .appendingPathComponent(name, isDirectory: false)
+                .resourceValues(forKeys: [.fileSizeKey])
+            total += Int64(values?.fileSize ?? 0)
         }
-        var count = 0
-        var bytes: Int64 = 0
-        for url in entries {
-            guard
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                values.isRegularFile == true
-            else {
-                continue
-            }
-            count += 1
-            bytes += Int64(values.fileSize ?? 0)
-        }
-        return Usage(count: count, bytes: bytes)
+        return Usage(count: names.count, bytes: bytes)
     }
 }

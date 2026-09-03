@@ -103,10 +103,7 @@ public struct MemoryRepository: Sendable {
                       AND TRIM(audio_local_uri) <> ''
                     """
             )
-            return Set(rows.compactMap { row -> String? in
-                let value: String? = row["audio_local_uri"]
-                return value
-            })
+            return Set(rows.compactMap { row -> String? in row["audio_local_uri"] })
         }
     }
 
