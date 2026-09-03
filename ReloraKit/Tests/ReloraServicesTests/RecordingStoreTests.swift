@@ -155,3 +155,83 @@ func rejectsANonFileURLString() {
     let store = RecordingStore(directory: root.appendingPathComponent("Recordings"))
     #expect(store.existingURL(for: "https://example.com/a.m4a") == nil)
 }
+
+@Test("storedFileNames is empty when the directory does not exist")
+func storedFileNamesIsEmptyWhenTheDirectoryDoesNotExist() {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let store = RecordingStore(directory: root.appendingPathComponent("Recordings"))
+    #expect(store.storedFileNames().isEmpty)
+}
+
+@Test("storedFileNames lists regular files and skips subdirectories")
+func storedFileNamesListsRegularFilesOnly() throws {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let recordings = root.appendingPathComponent("Recordings")
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("one.m4a"))
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("two.m4a"))
+    try FileManager.default.createDirectory(
+        at: recordings.appendingPathComponent("nested", isDirectory: true),
+        withIntermediateDirectories: true
+    )
+
+    let store = RecordingStore(directory: recordings)
+    #expect(Set(store.storedFileNames()) == Set(["one.m4a", "two.m4a"]))
+}
+
+@Test("remove deletes one recording and reports whether a file went")
+func removeDeletesOneRecording() throws {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let recordings = root.appendingPathComponent("Recordings")
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("one.m4a"))
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("two.m4a"))
+
+    let store = RecordingStore(directory: recordings)
+    #expect(store.remove(name: "one.m4a"))
+    #expect(!store.remove(name: "one.m4a"))
+    #expect(store.storedFileNames() == ["two.m4a"])
+}
+
+@Test("removeAll empties the store and returns how many went")
+func removeAllEmptiesTheStore() throws {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let recordings = root.appendingPathComponent("Recordings")
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("one.m4a"))
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("two.m4a"))
+    try writeFakeAudioFile(at: recordings.appendingPathComponent("three.m4a"))
+
+    let store = RecordingStore(directory: recordings)
+    #expect(store.removeAll() == 3)
+    #expect(store.storedFileNames().isEmpty)
+    #expect(store.removeAll() == 0)
+}
+
+@Test("usage counts the stored files and sums their bytes")
+func usageCountsTheStoredFilesAndSumsTheirBytes() throws {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let recordings = root.appendingPathComponent("Recordings")
+    try FileManager.default.createDirectory(at: recordings, withIntermediateDirectories: true)
+    try Data(repeating: 0x41, count: 1_000).write(to: recordings.appendingPathComponent("one.m4a"))
+    try Data(repeating: 0x42, count: 2_500).write(to: recordings.appendingPathComponent("two.m4a"))
+
+    let store = RecordingStore(directory: recordings)
+    #expect(store.usage() == RecordingStore.Usage(count: 2, bytes: 3_500))
+}
+
+@Test("usage is zero when the directory does not exist")
+func usageIsZeroWhenTheDirectoryDoesNotExist() {
+    let root = makeRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let store = RecordingStore(directory: root.appendingPathComponent("Recordings"))
+    #expect(store.usage() == RecordingStore.Usage(count: 0, bytes: 0))
+}

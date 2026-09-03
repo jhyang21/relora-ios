@@ -44,6 +44,7 @@ public final class SettingsViewModel {
     public private(set) var deletingAccount = false
     public private(set) var planName: String
     public private(set) var usageFooter: String
+    public private(set) var recordingsValue = "—"
 
     /// The sub-screen showing over Settings, if any.
     public var presentedSheet: SettingsSheet?
@@ -143,6 +144,13 @@ public final class SettingsViewModel {
         let subscription = billing.subscriptionSnapshot
         planName = SettingsPlanCopy.planName(subscription)
         usageFooter = SettingsPlanCopy.usageFooter(subscription: subscription, evaluation: snapshot.evaluation)
+
+        // Not read in `init`: a directory walk is unbounded, unlike the two
+        // SQLite reads already there. `formatted(.byteCount)` over
+        // `ByteCountFormatter` — the latter is a non-Sendable class, so a
+        // cached instance is a Swift 6 error.
+        let usage = await Task.detached(priority: .userInitiated) { RecordingStore.shared.usage() }.value
+        recordingsValue = SettingsVoiceCopy.recordingsValue(count: usage.count, formattedSize: usage.bytes.formatted(.byteCount(style: .file)))
     }
 
     // MARK: - Sync

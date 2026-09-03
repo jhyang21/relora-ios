@@ -1,4 +1,5 @@
 import Foundation
+import os
 import ReloraCore
 import ReloraData
 import ReloraDesign
@@ -193,7 +194,15 @@ final class AppBootstrap {
             let ids = (try? repository.listFullByUser(userID: userID))?.compactMap(\.notificationID) ?? []
             try? repository.clearNotificationIDs(ids)
         }
-        identity.onClearingLocalData = { [notificationCenter] in await notificationCenter.removeAllPending() }
+        // Delete Account takes the voice files at once rather than leaving
+        // them to the next launch's sweep. This runs before
+        // `clearAllLocalData()`, which deletes every user's rows, so
+        // `removeAll()`'s all-files scope is the matching scope. Sign-out
+        // keeps the rows and therefore keeps the files.
+        identity.onClearingLocalData = { [notificationCenter] in
+            await notificationCenter.removeAllPending()
+            _ = await Task.detached(priority: .utility) { RecordingStore.shared.removeAll() }.value
+        }
 
         // M10: `deleteRemoteAccountData` was declared on `IdentityController`
         // ("Wire to `EdgeFunctionsClient.deleteAccountData`") but never set —
@@ -263,6 +272,28 @@ final class AppBootstrap {
         // A notification tapped before bootstrap finished is queued in
         // `router.pendingDeepLinkURL`; identity is settled now, so replay it.
         await router.replayPendingDeepLink(identity: identity)
+
+        // Last, so it never competes with FTS, identity bootstrap or the
+        // launch sync for the pool. Not gated on identity: recordings are
+        // per-device files with no owner. The `Logger` is built inside the
+        // task because a static on this `@MainActor` class would be
+        // main-actor-isolated and unreadable from a nonisolated body.
+        // A failed read skips the sweep outright: an empty set licenses
+        // deletion, an unreadable one must not.
+        Task { [database] in
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.immform.relora", category: "recordings")
+            let referenced: Set<String>
+            do {
+                referenced = try MemoryRepository(database: database).liveAudioLocalURIs()
+            } catch {
+                logger.error("Recording sweep skipped: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            let result = await Task.detached(priority: .utility) {
+                RecordingSweep(store: .shared).run(referencedValues: referenced)
+            }.value
+            logger.info("Recording sweep removed \(result.removed) kept \(result.kept)")
+        }
     }
 
     /// The app came back to the foreground.

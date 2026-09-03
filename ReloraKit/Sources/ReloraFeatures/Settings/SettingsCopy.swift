@@ -167,6 +167,20 @@ public enum SettingsPlanCopy {
     }
 }
 
+/// The Voice section's Recordings row: how many recordings this iPhone
+/// holds and how much space they take.
+///
+/// Takes the size pre-formatted, not raw bytes, because byte formatting
+/// is locale- and OS-dependent — the copy tests assert an exact string,
+/// which a formatter call inside this function would not let them do.
+public enum SettingsVoiceCopy {
+    public static func recordingsValue(count: Int, formattedSize: String) -> String {
+        guard count > 0 else { return "None" }
+        let noun = count == 1 ? "recording" : "recordings"
+        return "\(count) \(noun) \u{00B7} \(formattedSize)"
+    }
+}
+
 /// The Account section's footer: one sentence about sync, always present
 /// so the section never reflows.
 public enum SettingsSyncCopy {
