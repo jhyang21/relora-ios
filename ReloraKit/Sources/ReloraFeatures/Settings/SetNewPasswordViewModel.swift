@@ -6,10 +6,6 @@ import ReloraServices
 @MainActor
 @Observable
 public final class SetNewPasswordViewModel {
-    /// The rule the server enforces, stated once in `PasswordRule` and
-    /// re-exported here so the view keeps reading it off this type.
-    public static let passwordRequirementsHint = PasswordRule.hint
-
     public enum ValidationError: Equatable, Sendable {
         case weak(PasswordRule.Failure)
         case mismatch
@@ -64,7 +60,7 @@ public final class SetNewPasswordViewModel {
         if let validationError = Self.validate(password: password, confirmPassword: confirmPassword) {
             switch validationError {
             case .weak(let failure):
-                toasts.showError(PasswordRule.title(for: failure), message: Self.passwordRequirementsHint)
+                toasts.showError(PasswordRule.title(for: failure), message: PasswordRule.hint)
             case .mismatch:
                 toasts.showError("Passwords do not match", message: "Re-enter the same password in both fields.")
             }

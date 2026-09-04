@@ -75,7 +75,7 @@ public struct SetNewPasswordView: View {
                             .submitLabel(.done)
                             .onSubmit { handleSubmit() }
 
-                        Text(SetNewPasswordViewModel.passwordRequirementsHint)
+                        Text(PasswordRule.hint)
                             .font(ReloraFont.footnote)
                             .foregroundStyle(ReloraColor.mutedInk)
 

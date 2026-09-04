@@ -152,11 +152,6 @@ public protocol LiveTranscribingVoicePipeline: VoiceTranscriptionPipeline {
     /// `begin()`: realtime is tried first and batch is the silent
     /// fallback, not a second attempt the user sees.
     ///
-    /// `.unavailable` carries the mint's error so the caller can tell the
-    /// one failure that must not be silent — a 402, meaning the server
-    /// says the quota is spent — from every failure that batch will
-    /// recover from. See `LiveSessionStart`.
-    ///
     /// Call at most once per capture, before `recorder.start()`.
     func beginLiveSession(recorder: RecordingController) async -> LiveSessionStart
 

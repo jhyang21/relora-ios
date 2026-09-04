@@ -318,7 +318,9 @@ public final class VoiceCaptureViewModel {
                 // is spent, checked against a ledger this client cannot
                 // see. Batch would hit the same wall sixty seconds later,
                 // after the user had recorded a note for nothing — the same
-                // reasoning `failFromPipeline` applies mid-processing.
+                // reasoning `failFromPipeline` applies mid-processing. Every
+                // other mint failure stays silent: recording goes ahead and
+                // `process()` falls back to batch.
                 if let error, error.httpStatus == 402 {
                     // `stop()` first: this method already started the meter
                     // and event streams, and the microphone never opens
@@ -329,9 +331,6 @@ public final class VoiceCaptureViewModel {
                     onPaywall(VoiceQuotaGate.paywallReason(forServerCode: error.code))
                     return
                 }
-                // Everything else stays silent: recording goes ahead and
-                // `process()` falls back to batch.
-                break
             }
         }
 

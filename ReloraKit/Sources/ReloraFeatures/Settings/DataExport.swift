@@ -21,9 +21,8 @@ public enum DataExport {
         case writeFailed
     }
 
-    /// Every file this writes is named `relora-export-<ms>.json`, which is
-    /// what `sweepStaleFiles` and `RecordingSweep` both key off. Keep the
-    /// prefix and the extension in step with them.
+    /// `sweepStaleFiles` matches on these two, so they are stated once
+    /// rather than spelled into the file name and the filter separately.
     static let fileNamePrefix = "relora-export-"
     static let fileExtension = "json"
 
@@ -53,14 +52,11 @@ public enum DataExport {
     /// Deletes export files an earlier run left behind. Called at launch.
     ///
     /// `ExportShareSheet` removes its own file when the sheet closes, so
-    /// this only catches what a crash or a kill left there. It is not the
-    /// recording sweep's job: that one deliberately touches nothing but
-    /// `relora-recording-*.m4a`.
+    /// this only catches what a crash or a kill left there.
     ///
     /// Never throws, and takes no grace window — an export is consumed by
     /// the share sheet that opened it, so a file still on disk at the next
     /// launch is by definition finished with.
-    @discardableResult
     public static func sweepStaleFiles(
         in directory: URL = FileManager.default.temporaryDirectory
     ) -> Int {

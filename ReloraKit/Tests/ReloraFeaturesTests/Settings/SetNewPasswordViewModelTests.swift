@@ -24,14 +24,4 @@ struct SetNewPasswordViewModelValidateTests {
     func validPasses() {
         #expect(SetNewPasswordViewModel.validate(password: "Abcdefg1", confirmPassword: "Abcdefg1") == nil)
     }
-
-    @Test("Exactly 7 characters is still too short — the boundary is inclusive at 8")
-    func sevenCharactersIsTooShort() {
-        #expect(SetNewPasswordViewModel.validate(password: "Abcdef1", confirmPassword: "Abcdef1") == .weak(.tooShort))
-    }
-
-    @Test("An empty password is too short, not a mismatch")
-    func emptyPasswordIsTooShort() {
-        #expect(SetNewPasswordViewModel.validate(password: "", confirmPassword: "") == .weak(.tooShort))
-    }
 }

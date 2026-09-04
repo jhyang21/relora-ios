@@ -208,6 +208,9 @@ extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
     #expect(info.clientSecretValue == "secret")
     #expect(info.mode == "realtime")
     #expect(info.expiresAt == Date(timeIntervalSince1970: 1_234_567_890))
+    // A server that has not shipped the id yet still mints a usable
+    // session; the caller falls back to the batch upload.
+    #expect(info.sessionID == nil)
 
     let captured = try #require(MockURLProtocol.capturedRequests.first)
     #expect(captured.request.url?.absoluteString == "https://example.supabase.co/functions/v1/create_realtime_transcription_session")
@@ -375,7 +378,6 @@ extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
     #expect(progressSeconds.values == [15])
 }
 
-
 // MARK: - Realtime session id
 
 @Test func createRealtimeSessionDecodesTheSessionID() async throws {
@@ -387,20 +389,6 @@ extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
     let info = try await makeClient().createRealtimeTranscriptionSession()
 
     #expect(info.sessionID == "3f1b0c2e-0000-4000-8000-000000000001")
-}
-
-/// An older server sends no id. That must still mint a usable session —
-/// the caller falls back to the batch upload instead.
-@Test func createRealtimeSessionDecodesAMissingSessionIDAsNil() async throws {
-    MockURLProtocol.reset()
-    MockURLProtocol.handler = { _ in
-        .init(statusCode: 200, body: Data(#"{"client_secret":{"value":"secret","expires_at":1234567890},"mode":"realtime"}"#.utf8))
-    }
-
-    let info = try await makeClient().createRealtimeTranscriptionSession()
-
-    #expect(info.sessionID == nil)
-    #expect(info.clientSecretValue == "secret")
 }
 
 /// The server has spelled `client_secret` both ways. Reading a bare

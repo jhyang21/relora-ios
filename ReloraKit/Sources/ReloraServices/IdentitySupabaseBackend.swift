@@ -31,13 +31,11 @@ public final class SupabaseAuthBackend: AuthBackend {
 
     /// Builds a client from a project URL and its public API key, the way
     /// every other `ReloraServices` type reads `BackendConfig`.
-    /// `flowType` is stated rather than left to the SDK default. PKCE is
-    /// already that default in 2.55.1, and the whole of `AuthDeepLink`
-    /// depends on it: under PKCE `session(from:)` refuses any URL that
-    /// carries `access_token`/`refresh_token` and only exchanges a `code`
-    /// against the verifier this device stored, so a link mailed to
-    /// someone else cannot open a session here. A future SDK that flipped
-    /// the default back would silently undo that; naming it here cannot.
+    ///
+    /// `flowType` is pinned rather than left to the SDK default, which is
+    /// already `.pkce`. The whole of `AuthDeepLink` depends on it — that
+    /// type says what PKCE rules out — and an SDK release that changed
+    /// the default would undo it silently.
     public init(config: BackendConfig) {
         self.client = AuthClient(
             url: config.supabaseURL.appendingPathComponent("auth/v1"),
