@@ -28,6 +28,14 @@ public enum DatabaseLocation {
         if !fileManager.fileExists(atPath: directory.path) {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+        // Already the platform default; stated so a future iOS default
+        // cannot quietly weaken it. Deliberately NOT `.complete`: sync
+        // writes while the app is backgrounded, and a locked device would
+        // fail every one of those writes.
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: directory.path
+        )
         return directory.appendingPathComponent("relora.db", isDirectory: false)
     }
 }

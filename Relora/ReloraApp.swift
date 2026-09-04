@@ -9,6 +9,12 @@ struct ReloraApp: App {
     private let bootstrap: AppBootstrap?
     private let launchFailure: String?
 
+    /// Covers the whole window whenever the scene is not active, so the
+    /// snapshot iOS takes for the app switcher shows the app's background
+    /// and nothing else. Notes are the entire content of this app; the
+    /// switcher is the one place they get shown without anyone asking.
+    @State private var isCovered = false
+
     init() {
         do {
             bootstrap = try AppBootstrap()
@@ -31,7 +37,18 @@ struct ReloraApp: App {
                     .environment(bootstrap.sync)
                     .environment(bootstrap.toasts)
                     .task { await bootstrap.start() }
+                    .overlay {
+                        if isCovered {
+                            ReloraColor.background
+                                .ignoresSafeArea()
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .onChange(of: scenePhase) { _, phase in
+                        // No animation on the way in: the snapshot is taken
+                        // during `.inactive`, and a fading cover would be
+                        // caught half-drawn.
+                        isCovered = phase != .active
                         // Coming back to the foreground is one of the three
                         // moments a sync runs (the others: an identity arriving,
                         // and a pull-to-refresh).
