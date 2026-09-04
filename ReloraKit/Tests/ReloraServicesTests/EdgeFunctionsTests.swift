@@ -375,29 +375,6 @@ extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
     #expect(progressSeconds.values == [15])
 }
 
-}}
-
-/// A synchronous, thread-safe collector for `onSlowProgress` callbacks.
-/// `EdgeFunctionsClient` calls `onSlowProgress` directly (not as an async
-/// function) from inside its internal timeout race, so this cannot be an
-/// actor — actor method calls require `await`, which a plain `(Int) ->
-/// Void` closure body cannot perform.
-private final class ProgressBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _values: [Int] = []
-
-    var values: [Int] { lock.withLock { _values } }
-
-    func record(_ value: Int) {
-        lock.withLock { _values.append(value) }
-    }
-}
-
-private func writeTempAudioFile() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("edge-functions-test-\(UUID().uuidString).m4a")
-    try Data("fake-audio-bytes".utf8).write(to: url)
-    return url
-}
 
 // MARK: - Realtime session id
 
@@ -482,4 +459,28 @@ private func writeTempAudioFile() throws -> URL {
         #expect(error.code == BackendError.realtimeRateLimited)
         #expect(error.httpStatus == 429)
     }
+}
+
+}}
+
+/// A synchronous, thread-safe collector for `onSlowProgress` callbacks.
+/// `EdgeFunctionsClient` calls `onSlowProgress` directly (not as an async
+/// function) from inside its internal timeout race, so this cannot be an
+/// actor — actor method calls require `await`, which a plain `(Int) ->
+/// Void` closure body cannot perform.
+private final class ProgressBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [Int] = []
+
+    var values: [Int] { lock.withLock { _values } }
+
+    func record(_ value: Int) {
+        lock.withLock { _values.append(value) }
+    }
+}
+
+private func writeTempAudioFile() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("edge-functions-test-\(UUID().uuidString).m4a")
+    try Data("fake-audio-bytes".utf8).write(to: url)
+    return url
 }
