@@ -398,3 +398,88 @@ private func writeTempAudioFile() throws -> URL {
     try Data("fake-audio-bytes".utf8).write(to: url)
     return url
 }
+
+// MARK: - Realtime session id
+
+@Test func createRealtimeSessionDecodesTheSessionID() async throws {
+    MockURLProtocol.reset()
+    MockURLProtocol.handler = { _ in
+        .init(statusCode: 200, body: Data(#"{"client_secret":{"value":"secret","expires_at":1234567890},"mode":"realtime","session_id":"3f1b0c2e-0000-4000-8000-000000000001"}"#.utf8))
+    }
+
+    let info = try await makeClient().createRealtimeTranscriptionSession()
+
+    #expect(info.sessionID == "3f1b0c2e-0000-4000-8000-000000000001")
+}
+
+/// An older server sends no id. That must still mint a usable session —
+/// the caller falls back to the batch upload instead.
+@Test func createRealtimeSessionDecodesAMissingSessionIDAsNil() async throws {
+    MockURLProtocol.reset()
+    MockURLProtocol.handler = { _ in
+        .init(statusCode: 200, body: Data(#"{"client_secret":{"value":"secret","expires_at":1234567890},"mode":"realtime"}"#.utf8))
+    }
+
+    let info = try await makeClient().createRealtimeTranscriptionSession()
+
+    #expect(info.sessionID == nil)
+    #expect(info.clientSecretValue == "secret")
+}
+
+/// The server has spelled `client_secret` both ways. Reading a bare
+/// string is what keeps a client-server version skew from taking realtime
+/// transcription out entirely.
+@Test func createRealtimeSessionAcceptsAFlatClientSecret() async throws {
+    MockURLProtocol.reset()
+    MockURLProtocol.handler = { _ in
+        .init(statusCode: 200, body: Data(#"{"client_secret":"secret","mode":"realtime","session_id":"abc"}"#.utf8))
+    }
+
+    let info = try await makeClient().createRealtimeTranscriptionSession()
+
+    #expect(info.clientSecretValue == "secret")
+    #expect(info.expiresAt == nil)
+    #expect(info.sessionID == "abc")
+}
+
+@Test func extractFromTranscriptSendsTheRealtimeSessionIDWhenGiven() async throws {
+    MockURLProtocol.reset()
+    let extractionBody = Data(#"{"subject_name_guess":null,"memory_draft":null,"key_things":[],"reminder_suggestion":null}"#.utf8)
+    MockURLProtocol.handler = { _ in .init(statusCode: 200, body: extractionBody) }
+
+    _ = try await makeClient().extractFromTranscript(
+        transcript: "Call Ben tomorrow.",
+        timeZone: nil,
+        realtimeSessionID: "session-1"
+    )
+
+    let captured = try #require(MockURLProtocol.capturedRequests.first)
+    let decoded = try JSONDecoder().decode([String: String].self, from: try #require(captured.bodyData))
+    #expect(decoded["realtime_session_id"] == "session-1")
+}
+
+@Test func extractFromTranscriptOmitsTheRealtimeSessionIDKeyWhenNil() async throws {
+    MockURLProtocol.reset()
+    let extractionBody = Data(#"{"subject_name_guess":null,"memory_draft":null,"key_things":[],"reminder_suggestion":null}"#.utf8)
+    MockURLProtocol.handler = { _ in .init(statusCode: 200, body: extractionBody) }
+
+    _ = try await makeClient().extractFromTranscript(transcript: "Call Ben tomorrow.", timeZone: nil)
+
+    let captured = try #require(MockURLProtocol.capturedRequests.first)
+    let object = try JSONSerialization.jsonObject(with: try #require(captured.bodyData)) as? [String: Any]
+    #expect(object?.keys.contains("realtime_session_id") == false)
+}
+
+@Test func createRealtimeSessionDecodesTheRateLimitCode() async throws {
+    MockURLProtocol.reset()
+    let body = Data(#"{"error":"Too many realtime sessions","code":"REALTIME_RATE_LIMITED"}"#.utf8)
+    MockURLProtocol.handler = { _ in .init(statusCode: 429, body: body) }
+
+    do {
+        _ = try await makeClient().createRealtimeTranscriptionSession()
+        Issue.record("Expected the rate-limit error to throw")
+    } catch let error as BackendError {
+        #expect(error.code == BackendError.realtimeRateLimited)
+        #expect(error.httpStatus == 429)
+    }
+}

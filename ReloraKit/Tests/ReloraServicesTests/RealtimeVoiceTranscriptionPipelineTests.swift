@@ -47,6 +47,32 @@ private func makeFailingClient() -> EdgeFunctionsClient {
     )
 }
 
+/// Mints against a server that answers the quota wall, so the mint error
+/// the composer keys off is a real decoded `BackendError`.
+private func makeQuotaExhaustedClient() -> EdgeFunctionsClient {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [QuotaExhaustedURLProtocol.self]
+    return EdgeFunctionsClient(
+        config: BackendConfig(supabaseURL: URL(string: "https://example.supabase.co")!, anonKey: "test-anon-key"),
+        tokenProvider: StubTokenProvider(),
+        session: URLSession(configuration: configuration),
+        timeoutBudget: .seconds(5),
+        progressMarks: []
+    )
+}
+
+private final class QuotaExhaustedURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 402, httpVersion: "HTTP/1.1", headerFields: [:])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"error":"Quota reached","code":"PLUS_QUOTA_REACHED"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 private final class FailingURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -76,12 +102,33 @@ struct RealtimeVoiceTranscriptionPipelineTests {
         #expect(pipeline.mode == .realtime)
     }
 
-    @Test("beginLiveSession returns nil when minting the session fails")
-    func beginLiveSessionReturnsNilWhenMintFails() async {
+    @Test("beginLiveSession reports unavailable when minting the session fails")
+    func beginLiveSessionIsUnavailableWhenMintFails() async {
         let pipeline = RealtimeVoiceTranscriptionPipeline(client: makeFailingClient(), batch: StubBatchPipeline { batchOutcome() })
         let recorder = RecordingController(sessionController: AudioSessionController())
-        let events = await pipeline.beginLiveSession(recorder: recorder)
-        #expect(events == nil)
+
+        guard case .unavailable = await pipeline.beginLiveSession(recorder: recorder) else {
+            Issue.record("expected .unavailable")
+            return
+        }
+    }
+
+    /// The quota case the composer must not stay silent about: a 402 from
+    /// the mint is carried back so the caller can open the paywall.
+    @Test("beginLiveSession carries the mint error back to the caller")
+    func beginLiveSessionCarriesTheMintError() async {
+        let pipeline = RealtimeVoiceTranscriptionPipeline(
+            client: makeQuotaExhaustedClient(),
+            batch: StubBatchPipeline { batchOutcome() }
+        )
+        let recorder = RecordingController(sessionController: AudioSessionController())
+
+        guard case .unavailable(let error) = await pipeline.beginLiveSession(recorder: recorder) else {
+            Issue.record("expected .unavailable")
+            return
+        }
+        #expect(error?.httpStatus == 402)
+        #expect(error?.code == BackendError.plusQuotaReached)
     }
 
     @Test("process falls back to batch when no live session was ever established")

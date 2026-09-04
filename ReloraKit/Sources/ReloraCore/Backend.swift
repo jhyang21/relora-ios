@@ -85,6 +85,10 @@ extension BackendError {
 
     // create_realtime_transcription_session/index.ts
     public static let realtimeSessionFailed = "OPENAI_REALTIME_SESSION_FAILED"
+    /// 429 from the mint endpoint: too many realtime sessions in too
+    /// short a window. Unlike the quota codes above this one clears on
+    /// its own, so the copy says to wait rather than to upgrade.
+    public static let realtimeRateLimited = "REALTIME_RATE_LIMITED"
 
     // delete_account_data/index.ts
     public static let deleteAccountFailed = "DELETE_ACCOUNT_FAILED"

@@ -18,18 +18,52 @@ public struct TranscribeResult: Sendable, Equatable {
 
 /// Result of `EdgeFunctionsClient.createRealtimeTranscriptionSession`.
 /// Mirrors `create_realtime_transcription_session/index.ts`'s
-/// `jsonResponse({ client_secret: { value, expires_at }, mode })`.
+/// `jsonResponse({ client_secret, mode, session_id })`.
 public struct RealtimeSessionInfo: Sendable, Equatable {
     public var clientSecretValue: String
     /// `client_secret.expires_at` from OpenAI's realtime session API is a
-    /// Unix epoch in seconds.
-    public var expiresAt: Date
+    /// Unix epoch in seconds. Nothing reads it yet, and a server that
+    /// sends a bare secret string sends no expiry, so it is optional.
+    public var expiresAt: Date?
     public var mode: String
+    /// The row the server opened for this session. `extract_from_transcript`
+    /// takes it in place of an audio upload, which is what keeps a realtime
+    /// capture from paying for a second, metered trip through
+    /// `transcribe_audio`. `nil` from a server that predates it — the
+    /// caller then falls back to that upload.
+    public var sessionID: String?
 
-    public init(clientSecretValue: String, expiresAt: Date, mode: String) {
+    public init(clientSecretValue: String, expiresAt: Date?, mode: String, sessionID: String? = nil) {
         self.clientSecretValue = clientSecretValue
         self.expiresAt = expiresAt
         self.mode = mode
+        self.sessionID = sessionID
+    }
+}
+
+/// `client_secret` as either shape the server has sent it in: OpenAI's
+/// own `{ value, expires_at }` object, and a bare secret string. Reading
+/// both means this client can ship before or after the server does, which
+/// matters because a mismatch takes realtime transcription out entirely.
+private struct ClientSecret: Decodable {
+    let value: String
+    let expiresAt: Date?
+
+    private struct Object: Decodable {
+        let value: String
+        let expires_at: Double?
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let flat = try? container.decode(String.self) {
+            value = flat
+            expiresAt = nil
+            return
+        }
+        let object = try container.decode(Object.self)
+        value = object.value
+        expiresAt = object.expires_at.map(Date.init(timeIntervalSince1970:))
     }
 }
 
@@ -213,17 +247,31 @@ public final class EdgeFunctionsClient: Sendable {
     /// (timeZone) body[EXTRACTION_TIME_ZONE_FIELD] = timeZone` in
     /// extractionService.ts — the server keeps its own clock; this only
     /// says which zone to read relative dates in.
+    ///
+    /// `realtimeSessionID` names the session a realtime capture already
+    /// paid for, so the server can bill this transcript against that row
+    /// instead of asking for the audio again. Omitted from the body when
+    /// `nil`, same as `time_zone`. The server rejects an id that is not
+    /// the caller's, or is over an hour old, with
+    /// `TRANSCRIPTION_REQUEST_NOT_FOUND`.
     public func extractFromTranscript(
         transcript: String,
         timeZone: String?,
+        realtimeSessionID: String? = nil,
         onSlowProgress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> ExtractionPayload {
         struct RequestBody: Encodable {
             let transcript: String
             let time_zone: String?
+            let realtime_session_id: String?
         }
         let normalizedTimeZone = (timeZone?.isEmpty == false) ? timeZone : nil
-        let payload = try JSONEncoder().encode(RequestBody(transcript: transcript, time_zone: normalizedTimeZone))
+        let normalizedSessionID = (realtimeSessionID?.isEmpty == false) ? realtimeSessionID : nil
+        let payload = try JSONEncoder().encode(RequestBody(
+            transcript: transcript,
+            time_zone: normalizedTimeZone,
+            realtime_session_id: normalizedSessionID
+        ))
 
         return try await withTimeout(stageTimeoutCode: BackendError.extractTimeout, onSlowProgress: onSlowProgress) { [self] in
             var request = try await buildRequest(functionName: "extract_from_transcript", method: "POST")
@@ -273,8 +321,13 @@ public final class EdgeFunctionsClient: Sendable {
             )
             try Self.throwIfEdgeFunctionError(data: data, response: response)
 
-            struct ClientSecret: Decodable { let value: String; let expires_at: Double }
-            struct SuccessBody: Decodable { let client_secret: ClientSecret; let mode: String }
+            struct SuccessBody: Decodable {
+                let client_secret: ClientSecret
+                let mode: String
+                /// Optional so a server that has not shipped the id yet
+                /// still mints a usable session.
+                let session_id: String?
+            }
             guard let decoded = try? JSONDecoder().decode(SuccessBody.self, from: data) else {
                 throw BackendError(
                     code: BackendError.invalidResponse,
@@ -284,8 +337,9 @@ public final class EdgeFunctionsClient: Sendable {
             }
             return RealtimeSessionInfo(
                 clientSecretValue: decoded.client_secret.value,
-                expiresAt: Date(timeIntervalSince1970: decoded.client_secret.expires_at),
-                mode: decoded.mode
+                expiresAt: decoded.client_secret.expiresAt,
+                mode: decoded.mode,
+                sessionID: decoded.session_id
             )
         }
     }
