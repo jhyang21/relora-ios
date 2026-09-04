@@ -93,6 +93,16 @@ public struct RecordingStore: Sendable {
             throw StoreError.moveFailed(String(describing: error))
         }
 
+        // Already the platform default; stated so a future iOS default
+        // cannot quietly weaken it. Deliberately NOT `.complete`: a save
+        // can finish while the app is backgrounded, and a locked device
+        // would fail the move. Best effort — a store that cannot take the
+        // attribute still holds the recording.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: directory.path
+        )
+
         if destinationExists {
             try? FileManager.default.removeItem(at: destination)
         }

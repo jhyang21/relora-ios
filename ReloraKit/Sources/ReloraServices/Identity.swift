@@ -117,20 +117,36 @@ public enum PasswordRecoveryStatus: Sendable, Equatable {
 
 // MARK: - Auth deep links
 
-/// Classifies a Supabase auth callback URL from its query string and
+/// Classifies a Supabase auth callback URL from its path, query string and
 /// fragment alone — no network call. Ports `extractAuthPayload` in
-/// apps/mobile/src/features/auth/authDeepLink.ts.
+/// apps/mobile/src/features/auth/authDeepLink.ts, narrowed to the PKCE
+/// flow this client pins (`SupabaseAuthBackend.init(config:)`).
+///
+/// ## Why tokens are not a link this app acts on
+///
+/// Under PKCE the only thing a callback carries is a one-time `code`,
+/// which `session(from:)` exchanges against the verifier THIS device
+/// stored when it started the flow. A URL bearing `access_token` and
+/// `refresh_token` cannot open a session here — the SDK throws on it —
+/// so treating one as an auth link would do nothing but hand a stranger's
+/// link a code path and an error message. It is not an auth link.
+///
+/// The accepted params match what `AuthClient.isPKCEFlow` accepts: `code`,
+/// or the error trio Supabase redirects with when it refuses the link.
 public enum AuthDeepLink {
+    /// The app's password-reset redirect (`relora://reset-password`, see
+    /// `IdentityController.passwordResetRedirectURL`). A custom-scheme URL
+    /// puts the first path segment in `host`, so both spellings are
+    /// checked.
+    static let passwordResetPathComponent = "reset-password"
+
     public enum Classification: Sendable, Equatable {
         case notAuthLink
-        /// `isPasswordRecovery` mirrors the `type=recovery` marker
-        /// Supabase's implicit-flow redirect appends to password-reset
-        /// links specifically (as opposed to e.g. `type=signup`, or no
-        /// type at all for a plain magic link). A PKCE `code` link is
-        /// never a recovery link in this app — the mobile client runs the
-        /// implicit flow (per authDeepLink.ts), so that branch exists in
-        /// RN only in case that ever changes, and is mirrored here the
-        /// same way: always `isPasswordRecovery: false`.
+        /// `isPasswordRecovery` comes from the redirect PATH, never from a
+        /// `type` param: a PKCE link carries no `type=recovery` marker,
+        /// only `?code=…` on whichever redirect URL the reset email was
+        /// asked for. The path is the only thing that says which flow the
+        /// code belongs to.
         case authLink(isPasswordRecovery: Bool)
     }
 
@@ -142,18 +158,25 @@ public enum AuthDeepLink {
         }
         let fragmentItems = parseFormEncoded(url.fragment ?? "")
 
-        if queryItems["code"] != nil || fragmentItems["code"] != nil {
-            return .authLink(isPasswordRecovery: false)
+        func param(_ name: String) -> String? {
+            let value = queryItems[name] ?? fragmentItems[name]
+            return (value?.isEmpty == false) ? value : nil
         }
 
-        guard let accessToken = queryItems["access_token"] ?? fragmentItems["access_token"], !accessToken.isEmpty,
-              let refreshToken = queryItems["refresh_token"] ?? fragmentItems["refresh_token"], !refreshToken.isEmpty
-        else {
-            return .notAuthLink
-        }
+        let isAuthLink = param("code") != nil
+            || param("error") != nil
+            || param("error_code") != nil
+            || param("error_description") != nil
+        guard isAuthLink else { return .notAuthLink }
 
-        let linkType = queryItems["type"] ?? fragmentItems["type"]
-        return .authLink(isPasswordRecovery: linkType == "recovery")
+        return .authLink(isPasswordRecovery: isPasswordResetURL(url))
+    }
+
+    static func isPasswordResetURL(_ url: URL) -> Bool {
+        let segments = ([url.host] + url.pathComponents)
+            .compactMap { $0 }
+            .filter { $0 != "/" && !$0.isEmpty }
+        return segments.first == passwordResetPathComponent
     }
 
     private static func parseFormEncoded(_ string: String) -> [String: String] {
@@ -304,11 +327,11 @@ public protocol AuthBackend: Sendable {
     /// Mirrors `supabase.auth.updateUser({ password: newPassword })`,
     /// called on the session a password-recovery deep link opened.
     func updatePassword(_ newPassword: String) async throws
-    /// Establishes a session from an auth callback URL — handles both the
-    /// PKCE `code` exchange and the implicit-flow access/refresh-token
-    /// pair. Mirrors the two branches of `applyAuthDeepLink` in
-    /// authDeepLink.ts (`exchangeCodeForSession` / `setSession`), unified
-    /// into the one call supabase-swift's `AuthClient.session(from:)`
-    /// already provides.
+    /// Establishes a session from an auth callback URL by exchanging its
+    /// PKCE `code` against the verifier this device stored. Mirrors
+    /// `exchangeCodeForSession` in authDeepLink.ts, through the one call
+    /// supabase-swift's `AuthClient.session(from:)` already provides.
+    /// A URL carrying tokens instead of a code throws — see
+    /// `AuthDeepLink`.
     func sessionFromURL(_ url: URL) async throws -> AuthSession
 }

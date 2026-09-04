@@ -305,12 +305,31 @@ public final class VoiceCaptureViewModel {
         // second attempt the user sees. Must run before `recorder.start`,
         // per `LiveTranscribingVoicePipeline.beginLiveSession`'s contract.
         if environment.isOnline(), let live = livePipeline {
-            if let liveEvents = await live.beginLiveSession(recorder: recorder) {
+            switch await live.beginLiveSession(recorder: recorder) {
+            case .started(let liveEvents):
                 isLiveTranscribing = true
                 liveTranscriptTask = Task { [weak self] in
                     for await event in liveEvents {
                         self?.applyLiveTranscriptEvent(event)
                     }
+                }
+            case .unavailable(let error):
+                // A 402 minting the session is the server saying the quota
+                // is spent, checked against a ledger this client cannot
+                // see. Batch would hit the same wall sixty seconds later,
+                // after the user had recorded a note for nothing — the same
+                // reasoning `failFromPipeline` applies mid-processing. Every
+                // other mint failure stays silent: recording goes ahead and
+                // `process()` falls back to batch.
+                if let error, error.httpStatus == 402 {
+                    // `stop()` first: this method already started the meter
+                    // and event streams, and the microphone never opens
+                    // now. The stage is left as the gate in `start()`
+                    // leaves it — the composer hands its sheet slot to the
+                    // paywall rather than showing anything else.
+                    stop()
+                    onPaywall(VoiceQuotaGate.paywallReason(forServerCode: error.code))
+                    return
                 }
             }
         }

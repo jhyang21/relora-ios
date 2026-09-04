@@ -121,6 +121,18 @@ public protocol VoiceTranscriptionPipeline: Sendable {
 
 // MARK: - Live transcription (M7)
 
+/// What `beginLiveSession` came back with.
+///
+/// The failure case carries an error rather than being a bare `nil`
+/// because one mint failure is not like the others: a 402 is the server
+/// saying the quota is spent, which batch cannot recover from either, so
+/// recording on and finding out sixty seconds later is worse than saying
+/// so now. Everything else stays silent and lets batch have its turn.
+public enum LiveSessionStart: Sendable {
+    case started(AsyncStream<RealtimeTranscriber.RealtimeEvent>)
+    case unavailable(BackendError?)
+}
+
 /// The seam `VoiceTranscriptionPipeline`'s doc comment reserved: a pipeline
 /// that can also stream a transcript *while recording is still happening*.
 ///
@@ -133,15 +145,15 @@ public protocol VoiceTranscriptionPipeline: Sendable {
 public protocol LiveTranscribingVoicePipeline: VoiceTranscriptionPipeline {
     /// Mints a realtime session and connects before recording starts,
     /// wiring the recorder's PCM tap straight into the socket. Returns
-    /// `nil` when minting or connecting fails — the caller then records
-    /// normally and this pipeline's own `process()` falls back to batch
-    /// once the recording finishes, so a doomed connection never blocks
-    /// the recording itself. Ports `useVoiceRecorder.ts`'s `begin()`:
-    /// realtime is tried first and batch is the silent fallback, not a
-    /// second attempt the user sees.
+    /// `.unavailable` when minting or connecting fails — the caller then
+    /// records normally and this pipeline's own `process()` falls back to
+    /// batch once the recording finishes, so a doomed connection never
+    /// blocks the recording itself. Ports `useVoiceRecorder.ts`'s
+    /// `begin()`: realtime is tried first and batch is the silent
+    /// fallback, not a second attempt the user sees.
     ///
     /// Call at most once per capture, before `recorder.start()`.
-    func beginLiveSession(recorder: RecordingController) async -> AsyncStream<RealtimeTranscriber.RealtimeEvent>?
+    func beginLiveSession(recorder: RecordingController) async -> LiveSessionStart
 
     /// Tears down a live session that `process()` will never consume — a
     /// discarded capture, or a retry starting over. Closes the socket

@@ -6,11 +6,8 @@ import ReloraServices
 @MainActor
 @Observable
 public final class SetNewPasswordViewModel {
-    /// Mirrors `PASSWORD_REQUIREMENTS_HINT` (authGateContent.ts).
-    public static let passwordRequirementsHint = "Use at least 6 characters."
-
     public enum ValidationError: Equatable, Sendable {
-        case tooShort
+        case weak(PasswordRule.Failure)
         case mismatch
     }
 
@@ -49,7 +46,7 @@ public final class SetNewPasswordViewModel {
     /// `supabase.auth.updateUser`, kept pure and static so they are
     /// testable without an `IdentityController`.
     public static func validate(password: String, confirmPassword: String) -> ValidationError? {
-        guard password.count >= 6 else { return .tooShort }
+        if let failure = PasswordRule.validate(password) { return .weak(failure) }
         guard password == confirmPassword else { return .mismatch }
         return nil
     }
@@ -62,8 +59,8 @@ public final class SetNewPasswordViewModel {
 
         if let validationError = Self.validate(password: password, confirmPassword: confirmPassword) {
             switch validationError {
-            case .tooShort:
-                toasts.showError("Password too short", message: Self.passwordRequirementsHint)
+            case .weak(let failure):
+                toasts.showError(PasswordRule.title(for: failure), message: PasswordRule.hint)
             case .mismatch:
                 toasts.showError("Passwords do not match", message: "Re-enter the same password in both fields.")
             }

@@ -1,31 +1,27 @@
 import Testing
 @testable import ReloraFeatures
+import ReloraServices
 
 @Suite("SetNewPasswordViewModel.validate")
 @MainActor
 struct SetNewPasswordViewModelValidateTests {
-    @Test("A password under 6 characters is too short, even if confirm matches")
+    @Test("A password under 8 characters is too short, even if confirm matches")
     func tooShortWinsFirst() {
-        #expect(SetNewPasswordViewModel.validate(password: "abc", confirmPassword: "abc") == .tooShort)
+        #expect(SetNewPasswordViewModel.validate(password: "Abc1", confirmPassword: "Abc1") == .weak(.tooShort))
     }
 
-    @Test("A 6-character password that does not match confirm is a mismatch")
-    func mismatchAfterLengthPasses() {
-        #expect(SetNewPasswordViewModel.validate(password: "abcdef", confirmPassword: "abcdeg") == .mismatch)
+    @Test("Strength is checked before the two fields are compared")
+    func strengthWinsOverMismatch() {
+        #expect(SetNewPasswordViewModel.validate(password: "abcdefgh", confirmPassword: "zzzzzzzz") == .weak(.missingUppercase))
     }
 
-    @Test("A 6-character password matching confirm validates clean")
+    @Test("A strong password that does not match confirm is a mismatch")
+    func mismatchAfterStrengthPasses() {
+        #expect(SetNewPasswordViewModel.validate(password: "Abcdefg1", confirmPassword: "Abcdefg2") == .mismatch)
+    }
+
+    @Test("A strong password matching confirm validates clean")
     func validPasses() {
-        #expect(SetNewPasswordViewModel.validate(password: "abcdef", confirmPassword: "abcdef") == nil)
-    }
-
-    @Test("Exactly 5 characters is still too short — the boundary is inclusive at 6")
-    func fiveCharactersIsTooShort() {
-        #expect(SetNewPasswordViewModel.validate(password: "abcde", confirmPassword: "abcde") == .tooShort)
-    }
-
-    @Test("An empty password is too short, not a mismatch")
-    func emptyPasswordIsTooShort() {
-        #expect(SetNewPasswordViewModel.validate(password: "", confirmPassword: "") == .tooShort)
+        #expect(SetNewPasswordViewModel.validate(password: "Abcdefg1", confirmPassword: "Abcdefg1") == nil)
     }
 }

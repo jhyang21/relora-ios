@@ -294,6 +294,18 @@ final class AppBootstrap {
             }.value
             logger.info("Recording sweep removed \(result.removed) kept \(result.kept)")
         }
+
+        // Separate from the recording sweep on purpose: that one owns only
+        // `relora-recording-*.m4a`, and an export is a clear-text copy of
+        // every note that should have died with the share sheet that
+        // opened it. Anything still here survived a crash.
+        Task.detached(priority: .utility) {
+            let removed = DataExport.sweepStaleFiles()
+            if removed > 0 {
+                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.immform.relora", category: "export")
+                    .info("Export sweep removed \(removed)")
+            }
+        }
     }
 
     /// The app came back to the foreground.

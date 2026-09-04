@@ -111,7 +111,7 @@ struct DeepLinkTests {
 
     @Test("A password-recovery link is an auth link, not a route")
     func recoveryLink() {
-        let url = URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!
+        let url = URL(string: "relora://reset-password?code=abc123")!
         #expect(ReloraDeepLink.classify(url) == .auth(isPasswordRecovery: true))
     }
 

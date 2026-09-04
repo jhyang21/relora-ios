@@ -25,9 +25,12 @@ import ReloraCore
 ///    (an `.error` event arrived on the live stream);
 /// 2. `RealtimeTranscriber.finish()` returned `nil` or an empty string —
 ///    the session connected but nothing usable came out of it;
-/// 3. `extractFromTranscript` threw (any error except `CancellationError`,
-///    which propagates so a user-cancelled capture does not silently start
-///    a second network round trip).
+/// 3. `extractFromTranscript` threw AND the session carried no id (any
+///    error except `CancellationError`, which propagates so a
+///    user-cancelled capture does not silently start a second network
+///    round trip). With an id the server has already billed the capture,
+///    so the error is surfaced rather than paid for twice — see
+///    `process()`.
 ///
 /// ## `BackendError.realtimeTranscriptTimeout` is a label, not a timer
 ///
@@ -76,7 +79,7 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
 
     // MARK: - Live session (pre-recording)
 
-    public func beginLiveSession(recorder: RecordingController) async -> AsyncStream<RealtimeTranscriber.RealtimeEvent>? {
+    public func beginLiveSession(recorder: RecordingController) async -> LiveSessionStart {
         // A leftover session from a capture that never reached `process()`
         // (a failed `recorder.start`, an abandoned attempt) must be closed,
         // not just dropped — dropping the reference leaks the socket and
@@ -87,7 +90,7 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
         do {
             session = try await client.createRealtimeTranscriptionSession()
         } catch {
-            return nil
+            return .unavailable(error as? BackendError)
         }
 
         let transcriber = RealtimeTranscriber()
@@ -100,10 +103,13 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
             try await transcriber.connect(session: session)
         } catch {
             await transcriber.close()
-            return nil
+            // Not reported: the secret was minted, so whatever the quota
+            // said, it said yes. A socket that will not open is exactly
+            // the case batch exists to cover.
+            return .unavailable(nil)
         }
 
-        state.setTranscriber(transcriber)
+        state.setTranscriber(transcriber, sessionID: session.sessionID)
 
         await recorder.setPCMFrameHandler { data in
             Task { try? await transcriber.append(pcm: data) }
@@ -125,12 +131,11 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
             }
             continuation.finish()
         }
-        return relayed
+        return .started(relayed)
     }
 
     public func cancelLiveSession() async {
-        let (transcriber, _) = state.take()
-        await transcriber?.close()
+        await state.take().transcriber?.close()
     }
 
     // MARK: - Outcome (post-recording)
@@ -140,9 +145,9 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
         allowLocalGuestFallback: Bool,
         onProgress: @escaping @Sendable (VoiceProcessingProgress) -> Void
     ) async throws -> VoiceCaptureOutcome {
-        let (transcriber, connectFailureCode) = state.take()
+        let live = state.take()
 
-        guard let transcriber, connectFailureCode == nil else {
+        guard let transcriber = live.transcriber, live.connectFailureCode == nil else {
             return try await runBatchFallback(recording, allowLocalGuestFallback, onProgress)
         }
 
@@ -153,9 +158,15 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
 
         onProgress(.stage(.extract))
         do {
+            // The session id is what makes this leg free of a second
+            // upload: the server bills the transcript against the session
+            // the capture already paid for. Without one — an older server
+            // — extraction is unmetered and the fallback below is the only
+            // path that would charge for this note twice.
             let extraction = try await client.extractFromTranscript(
                 transcript: transcript,
-                timeZone: timeZoneIdentifier()
+                timeZone: timeZoneIdentifier(),
+                realtimeSessionID: live.sessionID
             )
             return VoiceCaptureOutcome(
                 transcript: transcript,
@@ -165,6 +176,13 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            // With a session id the server has already billed this
+            // capture. Re-running batch would upload the same audio and
+            // charge for it a second time, so a failed extraction is
+            // surfaced instead — the error card's Retry then takes the
+            // batch path deliberately, because `take()` above consumed
+            // the session.
+            guard live.sessionID == nil else { throw error }
             return try await runBatchFallback(recording, allowLocalGuestFallback, onProgress)
         }
     }
@@ -172,10 +190,14 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
     /// Test-only seam: sets the post-`beginLiveSession` state directly, so
     /// `process()`'s fallback matrix is testable without a live WebSocket.
     /// `internal`, not `public` — reachable only via `@testable import`.
-    func setLiveSessionStateForTesting(transcriber: RealtimeTranscriber?, connectFailureCode: String?) {
+    func setLiveSessionStateForTesting(
+        transcriber: RealtimeTranscriber?,
+        connectFailureCode: String?,
+        sessionID: String? = nil
+    ) {
         state.reset()
         if let transcriber {
-            state.setTranscriber(transcriber)
+            state.setTranscriber(transcriber, sessionID: sessionID)
         }
         if let connectFailureCode {
             state.recordConnectFailure(connectFailureCode)
@@ -201,9 +223,17 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
 /// The same `@unchecked Sendable` + `NSLock` shape
 /// `BatchVoiceTranscriptionPipeline`'s `VoiceProcessingStageBox` uses.
 private final class LiveSessionState: @unchecked Sendable {
+    struct Snapshot: Sendable {
+        var transcriber: RealtimeTranscriber?
+        var connectFailureCode: String?
+        /// The server's id for this session, when it sent one.
+        var sessionID: String?
+    }
+
     private let lock = NSLock()
     private var transcriber: RealtimeTranscriber?
     private var connectFailureCode: String?
+    private var sessionID: String?
 
     /// Clears any state left over from a previous capture, so a retry
     /// after a discarded or fallback-completed session starts from a
@@ -212,11 +242,15 @@ private final class LiveSessionState: @unchecked Sendable {
         lock.withLock {
             transcriber = nil
             connectFailureCode = nil
+            sessionID = nil
         }
     }
 
-    func setTranscriber(_ transcriber: RealtimeTranscriber) {
-        lock.withLock { self.transcriber = transcriber }
+    func setTranscriber(_ transcriber: RealtimeTranscriber, sessionID: String?) {
+        lock.withLock {
+            self.transcriber = transcriber
+            self.sessionID = sessionID
+        }
     }
 
     func recordConnectFailure(_ code: String) {
@@ -226,11 +260,16 @@ private final class LiveSessionState: @unchecked Sendable {
     /// Consumes the session state — `process()` calls this once per
     /// capture, and a subsequent call (a Retry that starts a fresh
     /// recording) must not see this attempt's leftover transcriber.
-    func take() -> (RealtimeTranscriber?, String?) {
+    func take() -> Snapshot {
         lock.withLock {
-            let result = (transcriber, connectFailureCode)
+            let result = Snapshot(
+                transcriber: transcriber,
+                connectFailureCode: connectFailureCode,
+                sessionID: sessionID
+            )
             transcriber = nil
             connectFailureCode = nil
+            sessionID = nil
             return result
         }
     }
