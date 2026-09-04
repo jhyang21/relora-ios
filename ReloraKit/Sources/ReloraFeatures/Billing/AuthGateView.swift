@@ -136,7 +136,7 @@ public struct AuthGateView: View {
                                 .autocorrectionDisabled()
                                 .accessibilityLabel("Password")
 
-                            Text("Use at least 6 characters.")
+                            Text(PasswordRule.hint)
                                 .font(ReloraFont.footnote)
                                 .foregroundStyle(ReloraColor.mutedInk)
 
@@ -223,6 +223,12 @@ public struct AuthGateView: View {
     /// native equivalent of RN's `result.status === 'confirmation_required'`
     /// branch, not a failure to surface as an error toast.
     private func onSignUp() async {
+        // Checked here, not only on the server: the server's rejection
+        // costs a round trip and arrives as a raw auth-error string.
+        if let failure = PasswordRule.validate(password) {
+            toasts.showError(PasswordRule.title(for: failure), message: PasswordRule.hint)
+            return
+        }
         loadingAction = .signUp
         resetEmail = nil
         defer { loadingAction = nil }

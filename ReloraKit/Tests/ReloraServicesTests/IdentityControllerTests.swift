@@ -454,7 +454,7 @@ private final class CallLog: @unchecked Sendable {
 @Test @MainActor func handleAuthDeepLinkFlagsPasswordRecoveryOnSuccess() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .success(accountSession(userID: "acct-8")))
     let fixture = makeController(authBackend: backend)
-    let url = URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!
+    let url = URL(string: "relora://reset-password?code=abc123")!
 
     let outcome = await fixture.controller.handleAuthDeepLink(url)
 
@@ -465,7 +465,7 @@ private final class CallLog: @unchecked Sendable {
 @Test @MainActor func handleAuthDeepLinkReportsPasswordRecoveryFailedWhenTheLinkCannotEstablishASession() async throws {
     let backend = FakeAuthBackend(sessionFromURLResult: .failure(FakeAuthError()))
     let fixture = makeController(authBackend: backend)
-    let url = URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!
+    let url = URL(string: "relora://reset-password?code=abc123")!
 
     let outcome = await fixture.controller.handleAuthDeepLink(url)
 
@@ -488,23 +488,48 @@ private final class CallLog: @unchecked Sendable {
 
 // MARK: - AuthDeepLink.classify (pure)
 
-@Test func classifyRecognizesACodeLinkAsNeverPasswordRecovery() {
-    let outcome = AuthDeepLink.classify(URL(string: "relora://auth-callback?code=xyz")!)
+@Test func classifyRecognizesAQueryCodeLink() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://auth?code=xyz")!)
     #expect(outcome == .authLink(isPasswordRecovery: false))
 }
 
-@Test func classifyRecognizesARecoveryTypedFragmentLink() {
-    let outcome = AuthDeepLink.classify(URL(string: "relora://reset-password#access_token=a&refresh_token=b&type=recovery")!)
+@Test func classifyRecognizesAFragmentCodeLink() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://auth#code=xyz")!)
+    #expect(outcome == .authLink(isPasswordRecovery: false))
+}
+
+/// The whole point of pinning PKCE: a link that carries somebody else's
+/// tokens is not a link this app acts on, whatever `type` it claims.
+@Test func classifyRejectsATokenBearingLink() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://auth#access_token=a&refresh_token=b&type=recovery")!)
+    #expect(outcome == .notAuthLink)
+}
+
+@Test func classifyReadsRecoveryFromThePathNotAType() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://reset-password?code=xyz")!)
     #expect(outcome == .authLink(isPasswordRecovery: true))
 }
 
-@Test func classifyRecognizesANonRecoveryTokenLinkAsAuthButNotRecovery() {
-    let outcome = AuthDeepLink.classify(URL(string: "relora://auth-callback?access_token=a&refresh_token=b")!)
+@Test func classifyStillAcceptsSupabaseErrorRedirects() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://auth?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid")!)
     #expect(outcome == .authLink(isPasswordRecovery: false))
+}
+
+/// An expired reset link comes back on the reset path with error params
+/// and no code — it must still open the set-new-password sheet, which is
+/// where "request a new link" is said.
+@Test func classifyKeepsRecoveryForAFailedResetRedirect() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://reset-password?error=access_denied&error_code=otp_expired")!)
+    #expect(outcome == .authLink(isPasswordRecovery: true))
 }
 
 @Test func classifyReturnsNotAuthLinkWithNoRecognizedParameters() {
     let outcome = AuthDeepLink.classify(URL(string: "relora://home")!)
+    #expect(outcome == .notAuthLink)
+}
+
+@Test func classifyIgnoresAnEmptyCodeParameter() {
+    let outcome = AuthDeepLink.classify(URL(string: "relora://auth?code=")!)
     #expect(outcome == .notAuthLink)
 }
 

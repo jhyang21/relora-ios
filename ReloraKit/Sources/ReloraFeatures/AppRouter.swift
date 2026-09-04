@@ -66,9 +66,9 @@ public enum ReloraDeepLink: Equatable, Sendable {
 
     /// Splits a URL into "the router handles this" and "identity handles this".
     ///
-    /// Auth links are checked first because they are the ones that carry
-    /// credentials in the fragment; anything that looks like one must reach
-    /// `IdentityController` rather than being parsed here.
+    /// Auth links are checked first because they carry a one-time PKCE code
+    /// only `IdentityController` may spend; anything that looks like one must
+    /// reach it rather than being parsed here.
     public static func classify(_ url: URL) -> ReloraDeepLink {
         if case .authLink(let isPasswordRecovery) = AuthDeepLink.classify(url) {
             return .auth(isPasswordRecovery: isPasswordRecovery)
