@@ -44,8 +44,6 @@ public enum VoiceErrorCopy {
             return "That recording conflicted with an existing request. Try once more."
         case BackendError.recordPermissionDenied:
             return "Microphone permission is required to record."
-        case BackendError.realtimeRateLimited:
-            return "Live transcription is busy right now. Wait a moment and try again."
         default:
             break
         }

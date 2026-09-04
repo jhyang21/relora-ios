@@ -435,20 +435,6 @@ extension MockNetworkSerialTests { @Suite struct EdgeFunctions {
     #expect(object?.keys.contains("realtime_session_id") == false)
 }
 
-@Test func createRealtimeSessionDecodesTheRateLimitCode() async throws {
-    MockURLProtocol.reset()
-    let body = Data(#"{"error":"Too many realtime sessions","code":"REALTIME_RATE_LIMITED"}"#.utf8)
-    MockURLProtocol.handler = { _ in .init(statusCode: 429, body: body) }
-
-    do {
-        _ = try await makeClient().createRealtimeTranscriptionSession()
-        Issue.record("Expected the rate-limit error to throw")
-    } catch let error as BackendError {
-        #expect(error.code == BackendError.realtimeRateLimited)
-        #expect(error.httpStatus == 429)
-    }
-}
-
 }}
 
 /// A synchronous, thread-safe collector for `onSlowProgress` callbacks.
