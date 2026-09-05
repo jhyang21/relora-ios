@@ -46,7 +46,12 @@ public struct VoiceCaptureComposerView: View {
 
         NavigationStack {
             Group {
-                if model.stage == .draft {
+                if model.stage == .disclosure {
+                    VoiceDisclosurePanel(
+                        onContinue: { Task { await model.acknowledgeDisclosure() } },
+                        onNotNow: { model.declineDisclosure() }
+                    )
+                } else if model.stage == .draft {
                     reviewShell
                 } else {
                     captureShell

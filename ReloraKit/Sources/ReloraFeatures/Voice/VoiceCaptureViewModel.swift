@@ -58,7 +58,10 @@ public final class VoiceCaptureViewModel {
 
     // MARK: Stage
 
-    public private(set) var stage: VoiceCaptureStage = .recording
+    /// Assigned in `init`, not on appear. Reading the disclosure flag from
+    /// the database before the first frame is what keeps someone who has
+    /// already seen the panel from watching the meter flash behind it.
+    public private(set) var stage: VoiceCaptureStage
     public private(set) var meter = VoiceMeter()
     public private(set) var elapsed: Duration = .zero
     public private(set) var durationCap = Duration.milliseconds(QuotaPolicy.freeNoteDurationLimitMs)
@@ -132,6 +135,7 @@ public final class VoiceCaptureViewModel {
     @ObservationIgnored private let onPaywall: (AppRouter.PaywallReason) -> Void
     @ObservationIgnored private let onSignIn: () -> Void
     @ObservationIgnored private let onClose: () -> Void
+    @ObservationIgnored private let disclosure: VoiceDisclosureStorage
 
     @ObservationIgnored private var audio: RecordingArtifact?
     @ObservationIgnored private var ids = VoiceSaveIDs()
@@ -157,6 +161,12 @@ public final class VoiceCaptureViewModel {
         onSignIn: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
+        // Built from the parameter, before the first stored property is
+        // assigned: a `@MainActor` type could not be constructed here, which
+        // is why `VoiceDisclosureStorage` is a plain `Sendable` struct.
+        let disclosure = VoiceDisclosureStorage(database: environment.database)
+        let seen = disclosure.readSeen()
+
         self.environment = environment
         self.initialContactID = initialContactID
         self.toasts = toasts
@@ -164,9 +174,35 @@ public final class VoiceCaptureViewModel {
         self.onPaywall = onPaywall
         self.onSignIn = onSignIn
         self.onClose = onClose
+        self.disclosure = disclosure
+        self.stage = VoiceDisclosureGate.decide(hasSeenDisclosure: seen) == .disclose ? .disclosure : .recording
     }
 
     // MARK: - Lifecycle
+
+    /// The sheet's entry point. Does nothing while the disclosure is up:
+    /// it runs ahead of the quota gate and the microphone both, so neither
+    /// may start until Continue is tapped.
+    public func start() async {
+        guard stage != .disclosure else { return }
+        await gateAndBeginCapture()
+    }
+
+    /// Continue on the disclosure: records that it was seen, then does what
+    /// `start()` would have done. The flag is written here and nowhere else
+    /// — a swipe or the X is a dismissal, not consent, so someone who backs
+    /// out sees the panel again on their next attempt.
+    public func acknowledgeDisclosure() async {
+        guard stage == .disclosure else { return }
+        disclosure.writeSeen()
+        await gateAndBeginCapture()
+    }
+
+    /// "Not now": the same exit as the X. Nothing has been captured at this
+    /// stage, so `requestClose()` closes without a confirmation.
+    public func declineDisclosure() {
+        requestClose()
+    }
 
     /// Gates, loads, and starts recording — in that order.
     ///
@@ -175,7 +211,7 @@ public final class VoiceCaptureViewModel {
     /// the screen mounts; here the composer hands its sheet slot to the
     /// paywall instead of opening, which is the same refusal without the
     /// screen appearing and vanishing.
-    public func start() async {
+    private func gateAndBeginCapture() async {
         let snapshot = await environment.access.accessSnapshot(userID: activeUserID)
         planID = snapshot.planID
         durationCap = snapshot.durationCap

@@ -26,6 +26,16 @@ public enum AppSettingsKey: String, Equatable, Sendable, CaseIterable {
     /// (`ReminderNotificationsToggle.swift`).
     case onboardingTutorialReminderID = "onboarding_tutorial_reminder_id"
 
+    /// Whether the one-time "How voice notes work" disclosure has been
+    /// shown and acknowledged. Written only by the disclosure's Continue
+    /// button, never by a dismiss — a swipe is not consent. Absent reads as
+    /// false through `getBooleanStrict`, the same default-false sense every
+    /// boolean key but the two in `AppSettingsDefaults` uses. No RN
+    /// counterpart: the Expo client never shipped this screen, so there is
+    /// no storage constant to mirror. Added by 2.4.0
+    /// (`VoiceDisclosureStorage.swift`, ReloraFeatures).
+    case voiceDisclosureSeen = "voice_disclosure_seen"
+
     case softUpsellDismissed = "soft_upsell_dismissed"
     case pendingAuthIntent = "pending_auth_intent"
     case subscriptionSnapshot = "subscription_snapshot"
