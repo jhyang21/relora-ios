@@ -192,9 +192,16 @@ public final class VoiceCaptureViewModel {
     /// `start()` would have done. The flag is written here and nowhere else
     /// — a swipe or the X is a dismissal, not consent, so someone who backs
     /// out sees the panel again on their next attempt.
+    ///
+    /// The stage flips before the first `await`, so a second tap on Continue
+    /// while the access snapshot is in flight fails the guard instead of
+    /// starting a second capture. `.recording` is what `init` picks for
+    /// anyone who has already seen the panel, so the gate runs against the
+    /// same screen it always has.
     public func acknowledgeDisclosure() async {
         guard stage == .disclosure else { return }
         disclosure.writeSeen()
+        stage = .recording
         await gateAndBeginCapture()
     }
 
