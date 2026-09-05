@@ -217,8 +217,7 @@ struct ContactRowLink: View {
                 ReloraAvatar(name: row.contact.name)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // `listBody`, not `body`: a List row title reads at the
-                    // system 17pt metric, the same as every Settings row.
+                    // A List row title, so `listBody` not `body`.
                     // Andrew's call, 2026-09-05.
                     Text(row.contact.name)
                         .font(ReloraFont.listBody)
