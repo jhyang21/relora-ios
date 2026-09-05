@@ -255,7 +255,7 @@ public struct SettingsView: View {
         } header: {
             headerText("Voice")
         } footer: {
-            footerText("Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Relora's servers transcribe the audio and do not keep it.")
+            footerText(SettingsVoiceCopy.footer)
         }
         .listRowBackground(ReloraColor.card)
     }

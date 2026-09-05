@@ -174,6 +174,17 @@ public enum SettingsPlanCopy {
 /// is locale- and OS-dependent — the copy tests assert an exact string,
 /// which a formatter call inside this function would not let them do.
 public enum SettingsVoiceCopy {
+    /// The two claims the Voice footer makes about audio, hoisted out of
+    /// `SettingsView` so the first-recording disclosure can repeat them
+    /// word for word instead of writing its own paraphrase. One place to
+    /// change, and one place a copy test can pin.
+    public static let recordingsStayOnDevice = "Recordings always stay on this iPhone for replay."
+    public static let serversDoNotKeepAudio = "Relora's servers transcribe the audio and do not keep it."
+
+    /// The Voice section's footer, byte-identical to the literal it
+    /// replaces in `SettingsView`.
+    public static let footer = "Keeps the text of each voice note. \(recordingsStayOnDevice) \(serversDoNotKeepAudio)"
+
     public static func recordingsValue(count: Int, formattedSize: String) -> String {
         guard count > 0 else { return "None" }
         let noun = count == 1 ? "recording" : "recordings"
