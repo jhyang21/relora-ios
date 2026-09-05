@@ -143,6 +143,17 @@ catalog in `ReloraCore/Backend.swift` — one catalog, no string forks.
   `usedLocalGuestFallback` — the invariant is "the server never counted
   this note", not the identity kind. Do not move the charge out of the
   transaction.
+- **A one-time voice disclosure landed in 2.4.0.** `VoiceCaptureStage`
+  gained a `.disclosure` case, first in the enum because it runs first:
+  ahead of `VoiceQuotaGate.decide` and ahead of the microphone, so
+  nobody is asked for mic access before being told what happens to the
+  audio. Continue writes `voice_disclosure_seen` and is the only thing
+  that does — a swipe or the X is a dismissal, not consent, and
+  `hasCaptureData` is already false at that stage so the sheet closes
+  silently and the panel returns next time. The composer owns it as a
+  pre-state, so both `router.present(.voiceComposer)` call sites,
+  `RootView` and `AppRouter` are untouched and the one-sheet rule holds.
+  The onboarding howItWorks row is unchanged. No RN counterpart.
 
 ## M7 outcomes (M8 integration step, M9, and the final report)
 
@@ -196,6 +207,13 @@ catalog in `ReloraCore/Backend.swift` — one catalog, no string forks.
   removes every recording at once. Stale `audio_local_uri` values are
   never nulled: that would dirty the row and push a local concern onto
   the server.
+- **Delete All Recordings landed in 2.4.0.** Settings > Voice, the second
+  production caller of `RecordingStore.removeAll()` after Delete Account.
+  Files only: `audio_local_uri` is never nulled, for the reason in the
+  bullet above, and the contact timeline's replay pill is gated on
+  `existingURL`, so the pills disappear with no write and no sync. The
+  row is disabled at zero recordings. An in-flight replay finishes — the
+  player holds the file it opened.
 
 ## M8 outcomes (M8b, M9, M10, and the final report)
 

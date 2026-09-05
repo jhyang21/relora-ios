@@ -4,6 +4,10 @@ import ReloraCore
 /// Which part of the capture the composer is showing. Ports `CaptureStage`
 /// in `VoiceCaptureComposerScreen.tsx`.
 public enum VoiceCaptureStage: String, Equatable, Sendable {
+    /// The one-time "How voice notes work" panel. First because it runs
+    /// before everything else — the quota gate and the microphone included.
+    /// No RN counterpart; the Expo client never showed it.
+    case disclosure
     case recording
     case processing
     /// The review screen. RN's `'draft'`.
@@ -20,11 +24,31 @@ public enum VoiceCaptureStage: String, Equatable, Sendable {
 /// functions is also what lets a test assert the escalation without a screen.
 public enum VoiceCaptureCopy {
 
+    // MARK: Disclosure
+
+    /// The one-time panel shown before the first recording. It never names
+    /// the transcription vendor: the privacy policy, the App Privacy labels
+    /// and the App Review notes carry that name, and in-app copy that reads
+    /// like a legal disclosure is copy nobody reads.
+    ///
+    /// The two privacy sentences are the Settings footer's own, not a
+    /// paraphrase — see `SettingsVoiceCopy`.
+    public static let disclosureTitle = "How voice notes work"
+    public static let disclosureBody =
+        "You talk, and Relora writes the note. You review it before anything is saved."
+    public static let disclosurePrivacy =
+        "\(SettingsVoiceCopy.serversDoNotKeepAudio) \(SettingsVoiceCopy.recordingsStayOnDevice)"
+    public static let disclosureMicNotice = "iOS will ask for microphone access next."
+    public static let disclosurePrivacyLink = "Privacy Policy"
+    public static let disclosureContinue = "Continue"
+    public static let disclosureNotNow = "Not now"
+
     // MARK: Header
 
     /// The small state line above the meter. RN's `getStateLabel`.
     public static func stateLabel(stage: VoiceCaptureStage, recording: VoiceRecordingState) -> String {
         switch stage {
+        case .disclosure: return "Before you start"
         case .processing: return "Polishing note"
         case .draft: return "Draft ready"
         case .error: return "Try again"
@@ -45,6 +69,7 @@ public enum VoiceCaptureCopy {
 
     public static func title(stage: VoiceCaptureStage) -> String {
         switch stage {
+        case .disclosure: return disclosureTitle
         case .error: return "We could not finish that recording"
         case .processing: return "Turning that recording into a clean note"
         case .recording, .draft: return "Speak like you normally would"

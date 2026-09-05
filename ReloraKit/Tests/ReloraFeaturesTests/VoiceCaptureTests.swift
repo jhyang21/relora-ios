@@ -568,6 +568,65 @@ struct VoiceCaptureCopyTests {
     }
 }
 
+// MARK: - Voice disclosure
+
+@Suite("Voice disclosure")
+struct VoiceDisclosureTests {
+
+    @Test func anUnseenDisclosureIsShownAndASeenOneIsNot() {
+        #expect(VoiceDisclosureGate.decide(hasSeenDisclosure: false) == .disclose)
+        #expect(VoiceDisclosureGate.decide(hasSeenDisclosure: true) == .proceed)
+    }
+
+    /// The panel repeats the Settings footer's own two sentences. If either
+    /// is reworded in one place and not the other, the app tells someone two
+    /// different stories about their audio.
+    @Test func thePrivacyLineReusesBothSettingsClaims() {
+        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.serversDoNotKeepAudio))
+        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.recordingsStayOnDevice))
+    }
+
+    /// The hoist that made the line above possible must not have changed
+    /// what Settings says. Pinned against the 2.3.1 literal, byte for byte.
+    @Test func theVoiceFooterIsUnchangedByTheHoist() {
+        #expect(
+            SettingsVoiceCopy.footer
+                == "Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Relora's servers transcribe the audio and do not keep it."
+        )
+    }
+
+    /// Andrew's copy rule: the disclosure never names the transcription
+    /// vendor. The privacy policy, the App Privacy labels and the App Review
+    /// notes carry that name; in-app copy that reads like a legal notice is
+    /// copy nobody reads.
+    @Test func noDisclosureStringNamesTheVendor() {
+        let strings = [
+            VoiceCaptureCopy.disclosureTitle,
+            VoiceCaptureCopy.disclosureBody,
+            VoiceCaptureCopy.disclosurePrivacy,
+            VoiceCaptureCopy.disclosureMicNotice,
+            VoiceCaptureCopy.disclosurePrivacyLink,
+            VoiceCaptureCopy.disclosureContinue,
+            VoiceCaptureCopy.disclosureNotNow,
+        ]
+        let forbidden = ["openai", "open ai", "chatgpt", "gpt", "whisper"]
+
+        for string in strings {
+            let lowered = string.lowercased()
+            for name in forbidden {
+                #expect(!lowered.contains(name), "\(string) names \(name)")
+            }
+        }
+    }
+
+    /// Both exhaustive switches over `VoiceCaptureStage` answer for the new
+    /// case. A missing arm is a compile error, but a wrong answer is not.
+    @Test func theHeaderReadsAsAPreludeRatherThanARecording() {
+        #expect(VoiceCaptureCopy.stateLabel(stage: .disclosure, recording: .listening) == "Before you start")
+        #expect(VoiceCaptureCopy.title(stage: .disclosure) == "How voice notes work")
+    }
+}
+
 // MARK: - Save transaction: planning
 
 @Suite("Voice save plan")

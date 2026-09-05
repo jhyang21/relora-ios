@@ -92,6 +92,16 @@ public enum SettingsConfirmation {
         message: "This permanently deletes your account, everything synced to it, and every note on this iPhone. Export your data first if you want a copy.",
         confirmLabel: "Delete"
     )
+
+    /// Deliberately narrow. This deletes audio files and nothing else, and
+    /// the message says so in the same breath: notes and transcripts stay.
+    /// Someone who reads "Delete" and stops reading must not be able to
+    /// mistake this for the row two sections below it.
+    public static let deleteAllRecordings = Dialog(
+        title: "Delete All Recordings?",
+        message: "Replay stops for every voice note on this iPhone. Your notes and transcripts stay exactly as they are.",
+        confirmLabel: "Delete"
+    )
 }
 
 /// Plan-row and Subscription-section copy. Ports `buildPlanSummary`
@@ -167,17 +177,42 @@ public enum SettingsPlanCopy {
     }
 }
 
-/// The Voice section's Recordings row: how many recordings this iPhone
-/// holds and how much space they take.
+/// The Voice section: the footer's two claims about audio, the Recordings
+/// row's count and size, and what Delete All Recordings reports back.
 ///
 /// Takes the size pre-formatted, not raw bytes, because byte formatting
 /// is locale- and OS-dependent — the copy tests assert an exact string,
 /// which a formatter call inside this function would not let them do.
 public enum SettingsVoiceCopy {
+    /// The two claims the Voice footer makes about audio, hoisted out of
+    /// `SettingsView` so the first-recording disclosure can repeat them
+    /// word for word instead of writing its own paraphrase. One place to
+    /// change, and one place a copy test can pin.
+    public static let recordingsStayOnDevice = "Recordings always stay on this iPhone for replay."
+    public static let serversDoNotKeepAudio = "Relora's servers transcribe the audio and do not keep it."
+
+    /// The Voice section's footer, byte-identical to the literal it
+    /// replaces in `SettingsView`.
+    public static let footer = "Keeps the text of each voice note. \(recordingsStayOnDevice) \(serversDoNotKeepAudio)"
+
     public static func recordingsValue(count: Int, formattedSize: String) -> String {
         guard count > 0 else { return "None" }
         let noun = count == 1 ? "recording" : "recordings"
         return "\(count) \(noun) \u{00B7} \(formattedSize)"
+    }
+
+    /// What the toast says once Delete All Recordings has run. The toast is
+    /// the whole confirmation — VoiceOver is told nothing else — so it
+    /// counts rather than saying "Done".
+    ///
+    /// Zero is reachable even though the row is disabled at zero: the
+    /// launch-time sweep can empty the store while Settings is open.
+    public static func recordingsDeletedMessage(count: Int) -> String {
+        switch count {
+        case 0: return "No recordings to delete."
+        case 1: return "1 recording deleted."
+        default: return "\(count) recordings deleted."
+        }
     }
 }
 
