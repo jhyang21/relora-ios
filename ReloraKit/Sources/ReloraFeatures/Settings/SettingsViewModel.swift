@@ -45,6 +45,11 @@ public final class SettingsViewModel {
     public private(set) var planName: String
     public private(set) var usageFooter: String
     public private(set) var recordingsValue = "—"
+    /// Backs the Delete All Recordings row's disabled state. Kept beside
+    /// `recordingsValue` rather than parsed back out of it — a count is a
+    /// number, and the row's copy is not a data format.
+    public private(set) var recordingsCount = 0
+    public private(set) var deletingRecordings = false
 
     /// The sub-screen showing over Settings, if any.
     public var presentedSheet: SettingsSheet?
@@ -145,12 +150,44 @@ public final class SettingsViewModel {
         planName = SettingsPlanCopy.planName(subscription)
         usageFooter = SettingsPlanCopy.usageFooter(subscription: subscription, evaluation: snapshot.evaluation)
 
-        // Not read in `init`: a directory walk is unbounded, unlike the two
-        // SQLite reads already there. `formatted(.byteCount)` over
-        // `ByteCountFormatter` — the latter is a non-Sendable class, so a
-        // cached instance is a Swift 6 error.
+        await refreshRecordingsUsage()
+    }
+
+    /// The Recordings row's count and size. Split out of `load()` because
+    /// Delete All Recordings has to redraw the row without reloading the
+    /// entitlement and the plan alongside it.
+    ///
+    /// Not read in `init`: a directory walk is unbounded, unlike the two
+    /// SQLite reads already there. `formatted(.byteCount)` over
+    /// `ByteCountFormatter` — the latter is a non-Sendable class, so a
+    /// cached instance is a Swift 6 error.
+    private func refreshRecordingsUsage() async {
         let usage = await Task.detached(priority: .userInitiated) { RecordingStore.shared.usage() }.value
+        recordingsCount = usage.count
         recordingsValue = SettingsVoiceCopy.recordingsValue(count: usage.count, formattedSize: usage.bytes.formatted(.byteCount(style: .file)))
+    }
+
+    /// Deletes every recording this iPhone holds, and nothing else.
+    ///
+    /// No database write, by the existing ruling: a stale `audio_local_uri`
+    /// is never nulled, because that would dirty the row and push a local
+    /// concern onto the server. The contact timeline gates its replay pill
+    /// on the file being found on disk, so the pills go on their own.
+    ///
+    /// The toast is the confirmation. Nothing else on screen says the files
+    /// went — the Recordings row reading "None" is a value change VoiceOver
+    /// does not announce.
+    public func deleteAllRecordings() async {
+        guard !deletingRecordings else { return }
+        deletingRecordings = true
+        let deleted = await Task.detached(priority: .utility) { RecordingStore.shared.removeAll() }.value
+        await refreshRecordingsUsage()
+        deletingRecordings = false
+        toasts.show(
+            "Recordings deleted",
+            message: SettingsVoiceCopy.recordingsDeletedMessage(count: deleted),
+            variant: .success
+        )
     }
 
     // MARK: - Sync

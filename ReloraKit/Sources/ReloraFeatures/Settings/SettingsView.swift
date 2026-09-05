@@ -20,6 +20,7 @@ public struct SettingsView: View {
 
     @State private var showSignOutConfirm = false
     @State private var showDeleteConfirm = false
+    @State private var showDeleteRecordingsConfirm = false
 
     private let database: AppDatabase
     private let identity: IdentityController
@@ -118,6 +119,18 @@ public struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(SettingsConfirmation.deleteAccount.message)
+        }
+        .confirmationDialog(
+            SettingsConfirmation.deleteAllRecordings.title,
+            isPresented: $showDeleteRecordingsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(SettingsConfirmation.deleteAllRecordings.confirmLabel, role: .destructive) {
+                Task { await viewModel.deleteAllRecordings() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(SettingsConfirmation.deleteAllRecordings.message)
         }
         .sheet(item: $viewModel.presentedSheet, onDismiss: { Task { await viewModel.load() } }) { sheet in
             sheetView(sheet)
@@ -252,6 +265,17 @@ public struct SettingsView: View {
             } label: {
                 Text("Recordings").font(ReloraFont.listBody)
             }
+
+            actionRow(
+                "Delete All Recordings",
+                running: viewModel.deletingRecordings,
+                role: .destructive
+            ) {
+                showDeleteRecordingsConfirm = true
+            }
+            .disabled(viewModel.recordingsCount == 0)
+            .accessibilityHint("Stops replay for saved voice notes. Notes and transcripts stay.")
+            .accessibilityValue(Text(viewModel.deletingRecordings ? "Deleting" : ""))
         } header: {
             headerText("Voice")
         } footer: {
