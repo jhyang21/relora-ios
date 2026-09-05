@@ -49,7 +49,9 @@ public struct VoiceCaptureComposerView: View {
                 if model.stage == .disclosure {
                     VoiceDisclosurePanel(
                         onContinue: { Task { await model.acknowledgeDisclosure() } },
-                        onNotNow: { model.declineDisclosure() }
+                        // "Not now" is the X's exit. Nothing has been captured
+                        // at this stage, so it closes without a confirmation.
+                        onNotNow: { model.requestClose() }
                     )
                 } else if model.stage == .draft {
                     reviewShell

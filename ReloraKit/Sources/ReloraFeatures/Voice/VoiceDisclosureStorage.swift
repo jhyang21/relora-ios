@@ -3,8 +3,9 @@ import ReloraCore
 import ReloraData
 
 /// Typed reads and writes over the one `app_settings` key behind the
-/// first-recording disclosure, shaped exactly like
-/// `OnboardingStorage.readCompleted`/`writeCompleted`.
+/// first-recording disclosure, shaped after
+/// `OnboardingStorage.readCompleted`/`writeCompleted`. The write takes no
+/// argument because acknowledgement is one-way: nothing un-sees the panel.
 ///
 /// No RN counterpart: the Expo client never showed this screen, so there is
 /// no `voiceDisclosureStorage.ts` to port. `getBooleanStrict` through a
@@ -26,7 +27,7 @@ public struct VoiceDisclosureStorage: Sendable {
         (try? settings.getBooleanStrict(.voiceDisclosureSeen)) ?? false
     }
 
-    public func writeSeen(_ seen: Bool = true) {
-        try? settings.setBoolean(.voiceDisclosureSeen, seen)
+    public func writeSeen() {
+        try? settings.setBoolean(.voiceDisclosureSeen, true)
     }
 }

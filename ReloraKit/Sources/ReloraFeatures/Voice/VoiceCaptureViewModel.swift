@@ -198,12 +198,6 @@ public final class VoiceCaptureViewModel {
         await gateAndBeginCapture()
     }
 
-    /// "Not now": the same exit as the X. Nothing has been captured at this
-    /// stage, so `requestClose()` closes without a confirmation.
-    public func declineDisclosure() {
-        requestClose()
-    }
-
     /// Gates, loads, and starts recording — in that order.
     ///
     /// The gate runs before the microphone does. RN checks

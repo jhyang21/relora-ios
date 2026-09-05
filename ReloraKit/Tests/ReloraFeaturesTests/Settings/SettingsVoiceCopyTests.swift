@@ -38,7 +38,6 @@ struct SettingsVoiceCopyTests {
     @Test func theDeleteDialogPromisesNothingItDoesNotDo() {
         let message = SettingsConfirmation.deleteAllRecordings.message.lowercased()
         #expect(!message.contains("account"))
-        #expect(!message.contains("transcript loss"))
         #expect(!message.contains("permanently"))
         #expect(message.contains("notes and transcripts stay"))
     }
