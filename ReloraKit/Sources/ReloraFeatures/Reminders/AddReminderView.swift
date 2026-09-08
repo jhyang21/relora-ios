@@ -4,10 +4,10 @@ import ReloraData
 import ReloraDesign
 import ReloraServices
 
-/// Add a reminder for one contact. Ports `AddReminderScreen.tsx` — the one
-/// place RN lets someone create a reminder by hand (voice capture can also
-/// produce one, out of this milestone). RN has no edit screen for a
-/// reminder, so this form has no edit mode either.
+/// Add or edit a reminder for one contact. Ports `AddReminderScreen.tsx` —
+/// the one place RN lets someone create a reminder by hand (voice capture can
+/// also produce one). RN has no edit screen for a reminder; 2.5.0 gave this
+/// form one, because `reminderID` is all that separates the two modes.
 ///
 /// Presented as a sheet from `ContactDetailView`'s toolbar menu, the same
 /// slot `contactEdit` uses. A local `.sheet` for the notification pre-prompt
@@ -23,6 +23,7 @@ public struct AddReminderView: View {
     public init(
         contactID: String,
         contactName: String,
+        reminderID: String? = nil,
         database: AppDatabase,
         notifications: NotificationEnvironment,
         userIDProvider: @escaping () async -> String,
@@ -33,6 +34,7 @@ public struct AddReminderView: View {
             initialValue: AddReminderViewModel(
                 contactID: contactID,
                 contactName: contactName,
+                reminderID: reminderID,
                 database: database,
                 notifications: notifications,
                 userIDProvider: userIDProvider,
@@ -72,7 +74,7 @@ public struct AddReminderView: View {
             }
             .scrollContentBackground(.hidden)
             .background(ReloraColor.background)
-            .navigationTitle("Add Reminder")
+            .navigationTitle(model.isEditing ? "Edit Reminder" : "Add Reminder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -89,6 +91,7 @@ public struct AddReminderView: View {
                     .accessibilityLabel("Save")
                 }
             }
+            .task { await model.start() }
         }
         .sheet(isPresented: $model.showingPriming) {
             ReminderNotificationPrimingSheet(
