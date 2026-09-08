@@ -294,4 +294,32 @@ struct RelativeTimeTests {
     func friendlyStaysRelative() {
         #expect(ReloraRelativeTime.friendlyDateTime(iso(daysFromNow: -2), now: now) == "2 days ago")
     }
+
+    /// A memory's date is the one the user can correct, so it is never
+    /// relative — "1 hour ago" is not something anyone can check against the
+    /// conversation they remember having.
+    @Test("Absolute never goes relative, however recent")
+    func absoluteStaysCalendar() {
+        let anHourAgo = ReloraTimestamp.from(ReloraTimestamp.parse(now)!.addingTimeInterval(-3_600))
+        let absolute = ReloraRelativeTime.absoluteDateTime(anHourAgo, now: now)
+
+        #expect(!absolute.isEmpty)
+        #expect(absolute != "1 hour ago")
+        #expect(absolute != ReloraRelativeTime.relative(anHourAgo, now: now))
+        #expect(absolute != ReloraRelativeTime.friendlyDateTime(anHourAgo, now: now))
+    }
+
+    /// The year is carried only when it is not the current one, exactly as
+    /// `friendlyDateTime`'s calendar half already did.
+    @Test("The year shows up only when it differs")
+    func absoluteYearOnlyWhenDifferent() {
+        #expect(!ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -30), now: now).contains("2026"))
+        #expect(ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -400), now: now).contains("2025"))
+    }
+
+    @Test("An unparseable timestamp says nothing here either")
+    func absoluteUnparseable() {
+        #expect(ReloraRelativeTime.absoluteDateTime("not-a-date", now: now).isEmpty)
+        #expect(ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -1), now: "not-a-date").isEmpty)
+    }
 }

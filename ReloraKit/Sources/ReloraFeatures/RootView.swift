@@ -174,6 +174,15 @@ public struct RootView: View {
                 }
             )
 
+        case .contactItemEdit(let target):
+            ContactItemEditView(
+                target: target,
+                database: database,
+                userIDProvider: { await writableUserID() },
+                onCancel: { router.dismissSheet() },
+                onSaved: { router.dismissSheet() }
+            )
+
         case .contactPicker:
             ContactPickerSheet { draft in
                 // Straight from the system picker into the form, prefilled. The
@@ -245,10 +254,11 @@ public struct RootView: View {
         case .setNewPassword:
             SetNewPasswordView(identity: identity, toasts: toasts)
 
-        case .addReminder(let contactID, let contactName):
+        case .addReminder(let contactID, let contactName, let reminderID):
             AddReminderView(
                 contactID: contactID,
                 contactName: contactName,
+                reminderID: reminderID,
                 database: database,
                 notifications: notifications,
                 userIDProvider: { await writableUserID() },

@@ -115,10 +115,16 @@ public struct ContactDetailView: View {
             } else {
                 Section {
                     ForEach(model.snapshot.memories, id: \.id) { memory in
-                        MemoryRow(memory: memory, nowISO: nowISO)
-                            .swipeDelete(kind: .memory) {
-                                model.deleteItem(id: memory.id, kind: .memory)
-                            }
+                        MemoryRow(
+                            memory: memory,
+                            nowISO: nowISO,
+                            onEdit: { editMemory(memory.id) }
+                        )
+                        .rowActions(kind: .memory) {
+                            editMemory(memory.id)
+                        } delete: {
+                            model.deleteItem(id: memory.id, kind: .memory)
+                        }
                     }
                 }
             }
@@ -129,11 +135,18 @@ public struct ContactDetailView: View {
             } else {
                 Section {
                     ForEach(model.snapshot.keyThings, id: \.id) { keyThing in
-                        ContactItemRow(
-                            title: keyThing.text,
-                            meta: ReloraRelativeTime.friendlyDateTime(keyThing.updatedAt, now: nowISO)
-                        )
-                        .swipeDelete(kind: .keyThing) {
+                        Button {
+                            editKeyThing(keyThing.id)
+                        } label: {
+                            ContactItemRow(
+                                title: keyThing.text,
+                                meta: ReloraRelativeTime.friendlyDateTime(keyThing.updatedAt, now: nowISO)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .rowActions(kind: .keyThing) {
+                            editKeyThing(keyThing.id)
+                        } delete: {
                             model.deleteItem(id: keyThing.id, kind: .keyThing)
                         }
                     }
@@ -146,17 +159,42 @@ public struct ContactDetailView: View {
             } else {
                 Section {
                     ForEach(model.snapshot.reminders, id: \.id) { reminder in
-                        ContactItemRow(
-                            title: reminder.title,
-                            meta: ContactDetailModel.reminderMeta(reminder, nowISO: nowISO)
-                        )
-                        .swipeDelete(kind: .reminder) {
+                        Button {
+                            editReminder(reminder.id)
+                        } label: {
+                            ContactItemRow(
+                                title: reminder.title,
+                                meta: ContactDetailModel.reminderMeta(reminder, nowISO: nowISO)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .rowActions(kind: .reminder) {
+                            editReminder(reminder.id)
+                        } delete: {
                             model.deleteItem(id: reminder.id, kind: .reminder)
                         }
                     }
                 }
             }
         }
+    }
+
+    // MARK: Editing one item
+
+    private func editMemory(_ id: String) {
+        router.present(.contactItemEdit(.memory(id: id)))
+    }
+
+    private func editKeyThing(_ id: String) {
+        router.present(.contactItemEdit(.keyThing(id: id)))
+    }
+
+    private func editReminder(_ id: String) {
+        router.present(.addReminder(
+            contactID: model.contactID,
+            contactName: model.snapshot.contact?.name ?? "",
+            reminderID: id
+        ))
     }
 
     private func emptySection(_ title: String, _ message: String) -> some View {
@@ -205,6 +243,35 @@ struct ContactDetailHeader: View {
     let contact: Contact
     let nowISO: String
 
+    /// The imported number, in the shape a person reads it. Import already
+    /// copies phone and email off the system contact; until 2.5.0 the detail
+    /// screen simply never showed either, which made the import look like it
+    /// had dropped them.
+    private var phone: String? {
+        guard let raw = contact.phoneNumber?.trimmed, !raw.isEmpty else { return nil }
+        return raw
+    }
+
+    private var email: String? {
+        guard let raw = contact.email?.trimmed, !raw.isEmpty else { return nil }
+        return raw
+    }
+
+    private var phoneURL: URL? {
+        guard let phone, let dialable = PhoneNumberFormat.dialable(phone) else { return nil }
+        return URL(string: "tel:\(dialable)")
+    }
+
+    /// Percent-encoded, because an address is user-entered text and a `mailto:`
+    /// built from a raw string with a space in it does not parse.
+    private var emailURL: URL? {
+        guard let email,
+              let encoded = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return nil
+        }
+        return URL(string: "mailto:\(encoded)")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: ReloraSpacing.sm) {
             HStack(spacing: ReloraSpacing.md) {
@@ -220,6 +287,30 @@ struct ContactDetailHeader: View {
                     }
                 }
             }
+            .accessibilityElement(children: .combine)
+
+            // Each link stays its own VoiceOver control. The header used to
+            // combine into a single element, which would now swallow two
+            // buttons into one label; the combine moved up to the identity
+            // block instead, where it was always doing the useful half of
+            // the job.
+            if let phone, let phoneURL {
+                Link(destination: phoneURL) {
+                    Label(PhoneNumberFormat.display(phone), systemImage: "phone")
+                }
+                .font(ReloraFont.footnote)
+                .foregroundStyle(ReloraColor.accentText)
+                .accessibilityHint("Calls this number")
+            }
+
+            if let email, let emailURL {
+                Link(destination: emailURL) {
+                    Label(email, systemImage: "envelope")
+                }
+                .font(ReloraFont.footnote)
+                .foregroundStyle(ReloraColor.accentText)
+                .accessibilityHint("Opens Mail")
+            }
 
             if let lastInteractionAt = contact.lastInteractionAt {
                 let relative = ReloraRelativeTime.relative(lastInteractionAt, now: nowISO)
@@ -232,14 +323,13 @@ struct ContactDetailHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, ReloraSpacing.sm)
-        .accessibilityElement(children: .combine)
     }
 }
 
 /// One memory in the timeline: what was written down and when, the transcript
 /// it came from behind a disclosure, and the replay control if there is audio.
 ///
-/// One root view, because `.swipeDelete` swipes whatever it is attached to —
+/// One root view, because `.rowActions` swipes whatever it is attached to —
 /// the disclosure and the pill have to sit inside this `VStack` rather than
 /// beside the row in the `ForEach`, or only the row above them would swipe.
 /// Expansion is per-row `@State`, so opening one transcript redraws that row
@@ -248,9 +338,18 @@ struct ContactDetailHeader: View {
 /// surface — and deliberately no `.accessibilityElement(children: .combine)`,
 /// which would swallow the disclosure button; `ContactItemRow` already
 /// combines its own two texts.
+///
+/// **Only the title-and-date part opens the editor.** The row holds three
+/// controls already — the disclosure, the replay pill, and now the tap that
+/// edits — and a `Button` wrapped around all of them would put two tappable
+/// things inside a third. Rather than gamble on SwiftUI routing the inner
+/// taps correctly, the button wraps the `ContactItemRow` alone; the
+/// disclosure and the pill keep the hit areas they already had, and the
+/// swipe action carries Edit for anyone who taps the transcript instead.
 struct MemoryRow: View {
     let memory: Memory
     let nowISO: String
+    let onEdit: () -> Void
 
     @State private var isTranscriptExpanded = false
 
@@ -264,10 +363,16 @@ struct MemoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ReloraSpacing.xs) {
-            ContactItemRow(
-                title: memory.text,
-                meta: ReloraRelativeTime.friendlyDateTime(memory.createdAt, now: nowISO)
-            )
+            Button(action: onEdit) {
+                ContactItemRow(
+                    title: memory.text,
+                    // Absolute, not relative. A memory's date is the one the
+                    // user can now correct, and "2 days ago" is not something
+                    // anyone can check against the conversation they remember.
+                    meta: ReloraRelativeTime.absoluteDateTime(memory.createdAt, now: nowISO)
+                )
+            }
+            .buttonStyle(.plain)
 
             if let transcript {
                 DisclosureGroup(isExpanded: $isTranscriptExpanded) {
@@ -319,14 +424,33 @@ struct ContactItemRow: View {
 }
 
 private extension View {
-    /// The swipe action every deletable row uses, labelled per kind so
+    /// The trailing swipe every editable row carries: Delete, then Edit.
+    ///
+    /// Delete is declared first because the action nearest the edge is the
+    /// one a full swipe performs, and Delete-on-full-swipe is the gesture
+    /// this list has always had — an Edit that stole it would be a
+    /// regression dressed as a feature. Delete is labelled per kind so
     /// VoiceOver's actions rotor says what it would delete.
-    func swipeDelete(kind: ContactItemKind, perform: @escaping () -> Void) -> some View {
+    ///
+    /// `accessibilityAction` repeats Edit for VoiceOver. Swipe actions do
+    /// reach the rotor on their own, but the tap that opens the editor is
+    /// the primary path here and an explicitly named action is the one way
+    /// to state it.
+    func rowActions(
+        kind: ContactItemKind,
+        edit: @escaping () -> Void,
+        delete: @escaping () -> Void
+    ) -> some View {
         let copy = ContactDetailModel.itemDeleteCopy(kind)
         return swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive, action: perform) {
+            Button(role: .destructive, action: delete) {
                 Label(copy.deleteLabel, systemImage: "trash")
             }
+            Button(action: edit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(ReloraColor.accent)
         }
+        .accessibilityAction(named: "Edit", edit)
     }
 }

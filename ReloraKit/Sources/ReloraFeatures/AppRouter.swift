@@ -118,6 +118,17 @@ public final class AppRouter {
         case existing(contactID: String)
     }
 
+    /// Which item the item-edit sheet is for.
+    ///
+    /// Two cases rather than an id plus a kind, so a caller cannot name a
+    /// memory and ask for the key-thing form. Reminders are not here: they
+    /// already have a form of their own (`addReminder`), and it grew an edit
+    /// mode rather than a second sheet.
+    public enum ContactItemEditTarget: Hashable, Sendable {
+        case memory(id: String)
+        case keyThing(id: String)
+    }
+
     /// Why the paywall opened.
     ///
     /// RN's paywall route takes `{ reason, source }` — two strings that always
@@ -150,6 +161,8 @@ public final class AppRouter {
     /// and edit modally for exactly this reason.
     public enum Sheet: Identifiable, Hashable {
         case contactEdit(ContactEditTarget)
+        /// 2.5.0. Editing one memory or one key thing.
+        case contactItemEdit(ContactItemEditTarget)
         case contactPicker
         case contactImport
         case settings
@@ -164,7 +177,13 @@ public final class AppRouter {
         /// M8b. `contactName` is display-only (the form's footer text) —
         /// looked up fresh by the view model at save time, never trusted
         /// stale across the sheet's lifetime.
-        case addReminder(contactID: String, contactName: String)
+        ///
+        /// 2.5.0 added `reminderID`: nil opens the form empty for a new
+        /// reminder, an id loads that row and saves back over it. The
+        /// parameter carries a default so every pre-2.5.0 call site
+        /// (`.addReminder(contactID:contactName:)`) still compiles and still
+        /// means "new".
+        case addReminder(contactID: String, contactName: String, reminderID: String? = nil)
 
         public var id: Self { self }
     }
