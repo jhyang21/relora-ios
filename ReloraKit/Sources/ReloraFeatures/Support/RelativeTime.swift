@@ -92,23 +92,21 @@ public enum ReloraRelativeTime {
         return calendarDateTime(target, now: now)
     }
 
-    /// The calendar form, always: "Sep 3 at 4:25 PM", gaining the year once it
-    /// is not this one. Never relative, however recent the timestamp is.
+    /// The calendar date, always with its year and never a time: "Sep 3, 2026".
+    /// Never relative, however recent the timestamp is.
     ///
-    /// What a memory's date reads as (2.5.0). A memory carries a date the user
-    /// can correct, and "2 days ago" is not something anyone can check against
-    /// the conversation they remember having — a date they can read is the
-    /// point of showing it at all. Everything else in the product keeps
-    /// `friendlyDateTime`.
-    public static func absoluteDateTime(_ targetISO: String, now nowISO: String) -> String {
-        guard let target = ReloraTimestamp.parse(targetISO),
-              let now = ReloraTimestamp.parse(nowISO) else {
-            return ""
-        }
-        return calendarDateTime(target, now: now)
+    /// What a memory's date reads as. A memory carries a date the user can
+    /// correct, and "2 days ago" is not something anyone can check against the
+    /// conversation they remember having — a date they can read is the point
+    /// of showing it at all. The time of day is left off (Andrew, 2026-09-07):
+    /// a conversation is remembered by its day, not its minute. Everything
+    /// else in the product keeps `friendlyDateTime`.
+    public static func absoluteDate(_ targetISO: String) -> String {
+        guard let target = ReloraTimestamp.parse(targetISO) else { return "" }
+        return target.formatted(Date.FormatStyle().month(.abbreviated).day().year())
     }
 
-    /// The shared calendar half of `friendlyDateTime` and `absoluteDateTime`.
+    /// The calendar half of `friendlyDateTime`.
     private static func calendarDateTime(_ target: Date, now: Date) -> String {
         let calendar = Calendar.current
         let sameYear = calendar.component(.year, from: target) == calendar.component(.year, from: now)

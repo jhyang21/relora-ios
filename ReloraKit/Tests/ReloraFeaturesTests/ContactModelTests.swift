@@ -301,24 +301,24 @@ struct RelativeTimeTests {
     @Test("Absolute never goes relative, however recent")
     func absoluteStaysCalendar() {
         let anHourAgo = ReloraTimestamp.from(ReloraTimestamp.parse(now)!.addingTimeInterval(-3_600))
-        let absolute = ReloraRelativeTime.absoluteDateTime(anHourAgo, now: now)
+        let absolute = ReloraRelativeTime.absoluteDate(anHourAgo)
 
         #expect(!absolute.isEmpty)
         #expect(absolute != ReloraRelativeTime.relative(anHourAgo, now: now))
         #expect(absolute != ReloraRelativeTime.friendlyDateTime(anHourAgo, now: now))
     }
 
-    /// The year is carried only when it is not the current one, exactly as
-    /// `friendlyDateTime`'s calendar half already did.
-    @Test("The year shows up only when it differs")
-    func absoluteYearOnlyWhenDifferent() {
-        #expect(!ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -30), now: now).contains("2026"))
-        #expect(ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -400), now: now).contains("2025"))
+    /// The day with its year, and no time of day — Andrew's call, 2026-09-07.
+    @Test("Absolute is the day and the year, never the time")
+    func absoluteIsDayAndYear() {
+        let absolute = ReloraRelativeTime.absoluteDate(iso(daysFromNow: -30))
+        #expect(absolute.contains("2026"))
+        #expect(!absolute.contains(":"))
+        #expect(ReloraRelativeTime.absoluteDate(iso(daysFromNow: -400)).contains("2025"))
     }
 
     @Test("An unparseable timestamp says nothing here either")
     func absoluteUnparseable() {
-        #expect(ReloraRelativeTime.absoluteDateTime("not-a-date", now: now).isEmpty)
-        #expect(ReloraRelativeTime.absoluteDateTime(iso(daysFromNow: -1), now: "not-a-date").isEmpty)
+        #expect(ReloraRelativeTime.absoluteDate("not-a-date").isEmpty)
     }
 }

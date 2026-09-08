@@ -71,15 +71,19 @@ public struct ContactItemEditView: View {
     private var dateBinding: Binding<Date> {
         Binding(
             get: { draft.date ?? Date() },
-            set: { draft.date = $0 }
+            // A day-only picker keeps the recorded time of day, so picking
+            // today for a note recorded later in the day than it is now
+            // would land in the future and leave Save disabled with no
+            // reason showing. Clamp to now instead.
+            set: { draft.date = min($0, Date()) }
         )
     }
 
     private var recordedFooter: String {
         guard let originalCreatedAt else { return "" }
-        let when = ReloraRelativeTime.absoluteDateTime(originalCreatedAt, now: ReloraTimestamp.now())
+        let when = ReloraRelativeTime.absoluteDate(originalCreatedAt)
         guard !when.isEmpty else { return "" }
-        return "Relora recorded this on \(when). Change it if the conversation happened at a different time."
+        return "Relora recorded this on \(when). Change it if the conversation happened on a different day."
     }
 
     public var body: some View {
@@ -98,7 +102,11 @@ public struct ContactItemEditView: View {
                             "Date",
                             selection: dateBinding,
                             in: ...Date(),
-                            displayedComponents: [.date, .hourAndMinute]
+                            // Day only. The row shows no time, so there is
+                            // nothing for a time wheel to correct; picking a
+                            // day keeps the recorded time of day underneath,
+                            // which is what orders two notes from one day.
+                            displayedComponents: [.date]
                         )
                     } header: {
                         Text("When")

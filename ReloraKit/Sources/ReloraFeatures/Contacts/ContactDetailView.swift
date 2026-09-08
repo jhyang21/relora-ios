@@ -117,7 +117,6 @@ public struct ContactDetailView: View {
                     ForEach(model.snapshot.memories, id: \.id) { memory in
                         MemoryRow(
                             memory: memory,
-                            nowISO: nowISO,
                             onEdit: { editMemory(memory.id) }
                         )
                         .rowActions(kind: .memory) {
@@ -348,7 +347,6 @@ struct ContactDetailHeader: View {
 /// swipe action carries Edit for anyone who taps the transcript instead.
 struct MemoryRow: View {
     let memory: Memory
-    let nowISO: String
     let onEdit: () -> Void
 
     @State private var isTranscriptExpanded = false
@@ -369,7 +367,7 @@ struct MemoryRow: View {
                     // Absolute, not relative. A memory's date is the one the
                     // user can now correct, and "2 days ago" is not something
                     // anyone can check against the conversation they remember.
-                    meta: ReloraRelativeTime.absoluteDateTime(memory.createdAt, now: nowISO)
+                    meta: ReloraRelativeTime.absoluteDate(memory.createdAt)
                 )
             }
             .buttonStyle(.plain)
