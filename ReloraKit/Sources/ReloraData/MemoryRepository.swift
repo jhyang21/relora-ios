@@ -81,6 +81,63 @@ public struct MemoryRepository: Sendable {
         }
     }
 
+    /// Fetches one memory's full row, or nil when there is none with that id.
+    /// Mirrors `ReminderRepository.get(id:)` — what the edit sheet loads
+    /// before it can show anything.
+    public func get(id: String) throws -> Memory? {
+        try database.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM memories WHERE id = ?",
+                arguments: [id]
+            ) else {
+                return nil
+            }
+            return try Self.mapMemory(row)
+        }
+    }
+
+    /// Rewrites one memory's text and the moment it records, and nothing else.
+    ///
+    /// A dedicated UPDATE rather than `upsert`, for two reasons. `upsert`'s
+    /// ON CONFLICT clause never touches `created_at`, which is exactly the
+    /// column a memory's date lives in; and going through `upsert` would mean
+    /// re-writing every other column from a row read a moment earlier, which
+    /// can clobber a concurrent pull. `transcript`, `labels`, `audio_url` and
+    /// `audio_local_uri` are left alone on purpose: correcting the wording of
+    /// a note does not discard the recording it came from.
+    ///
+    /// Marked dirty the same way every other local write is, so `SyncEngine`
+    /// pushes it and a pull cannot overwrite it while it is still dirty.
+    /// A row that is missing, tombstoned, or owned by someone else matches
+    /// nothing and the call is a no-op.
+    public func edit(id: String, text: String, createdAt: String, userID: String) throws {
+        try database.write { db in
+            let now = ReloraTimestamp.now()
+            try db.execute(
+                sql: """
+                    UPDATE memories
+                    SET text = ?, created_at = ?, updated_at = ?, is_dirty = 1, dirty_at = ?
+                    WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+                    """,
+                arguments: [text, createdAt, now, now, id, userID]
+            )
+            guard db.changesCount > 0 else { return }
+
+            // Read inside the same transaction, the same way `write` does,
+            // rather than trusting a contact id the caller passed in.
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT contact_id FROM memories WHERE id = ?",
+                arguments: [id]
+            ) else {
+                return
+            }
+            let contactID: String = row["contact_id"]
+            ContactSearchIndex.refreshRow(db, contactID: contactID)
+        }
+    }
+
     /// Every `audio_local_uri` a live memory still points at.
     ///
     /// Spans every `user_id` on purpose. Recordings are per-device files

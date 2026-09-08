@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ReloraData
 import ReloraCore
@@ -288,5 +289,31 @@ struct ReminderRepositoryTests {
 
         try repo.setNotificationID(reminder.id, notificationID: nil)
         #expect(try repo.get(id: reminder.id)?.notificationID == nil)
+    }
+
+    /// Guards the 2.5.0 edit path: `AddReminderViewModel` re-upserts the same
+    /// id with a fresh title and time, and the ON CONFLICT clause leaves
+    /// `created_at` off its update list on purpose — a reminder's creation
+    /// date must not become the date it was last corrected.
+    @Test("upsert of an existing id keeps created_at and takes the new title and time")
+    func upsertOnExistingIDKeepsCreatedAt() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = ReminderRepository(database: database)
+
+        let original = Fixtures.makeReminder(contactID: contact.id, title: "Call back")
+        try repo.upsert(original)
+
+        var edited = original
+        edited.title = "Call back about the lease"
+        edited.remindAt = ReloraTimestamp.from(Date().addingTimeInterval(7_200))
+        edited.createdAt = ReloraTimestamp.from(Date().addingTimeInterval(3_600))
+        edited.updatedAt = edited.createdAt
+        try repo.upsert(edited)
+
+        let loaded = try repo.get(id: original.id)
+        #expect(loaded?.title == "Call back about the lease")
+        #expect(loaded?.remindAt == edited.remindAt)
+        #expect(loaded?.createdAt == original.createdAt)
     }
 }

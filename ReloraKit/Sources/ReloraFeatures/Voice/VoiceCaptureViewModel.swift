@@ -225,17 +225,33 @@ public final class VoiceCaptureViewModel {
             durationCap = cap
         }
 
-        await loadContacts()
+        // Offline gate for signed-in accounts only — Andrew's 2026-09-07 QA
+        // ruling; see docs/milestone-notes.md.
+        if VoiceOfflineGate.decide(
+            isOnline: environment.isOnline(),
+            allowsLocalGuestFallback: allowsLocalGuestFallback
+        ) == .block {
+            stage = .offline
+            return
+        }
 
-        // No offline gate, deliberately (manager ruling over the M6 draft,
-        // which refused to record offline). A local guest's whole flow works
-        // with no network — transcription throws AUTH_REQUIRED before any
-        // request and the note is written by hand. For a signed-in user the
-        // audio is kept on failure and Retry re-sends it, so recording
-        // offline is "capture the thought now, send it later", which RN also
-        // allows. `environment.isOnline` stays: M7 reads it to resolve
-        // realtime-vs-batch before recording starts.
+        await loadContacts()
         await beginCapture()
+    }
+
+    /// "Try again" on the offline panel. Re-runs the whole gate rather than
+    /// only the connection check: a minute on the panel is long enough for
+    /// the quota to have been spent on another device, and re-asking is
+    /// cheap.
+    ///
+    /// Still offline is a no-op — the panel stays, with nothing to flash.
+    /// As on Continue, the stage flips before the first `await`, so a second
+    /// tap while the access snapshot is in flight fails the guard instead of
+    /// starting a second capture.
+    public func retryOffline() async {
+        guard stage == .offline, environment.isOnline() else { return }
+        stage = .recording
+        await gateAndBeginCapture()
     }
 
     /// Tears down every stream. Called when the sheet goes away.

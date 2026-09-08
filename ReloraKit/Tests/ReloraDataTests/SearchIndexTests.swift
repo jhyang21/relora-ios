@@ -81,6 +81,47 @@ struct SearchIndexTests {
         #expect(try ContactSearchIndex.searchContactIDs(database, query: "hiking").contains(contact.id))
     }
 
+    /// 2.5.0's edit path writes a targeted UPDATE rather than going through
+    /// `upsert`, so it has to refresh the index itself. Lives in this suite
+    /// rather than `MemoryRepositoryTests` because `SearchIndexState.shared`
+    /// is process-wide and only this suite resets it before each test.
+    @Test("editing a memory's text re-indexes the contact")
+    func editMemoryRefreshesSearchIndex() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let memoryRepo = MemoryRepository(database: database)
+
+        let memory = Fixtures.makeMemory(contactID: contact.id, text: "Went hiking in Joshua Tree")
+        try memoryRepo.upsert(memory)
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "hiking").contains(contact.id))
+
+        try memoryRepo.edit(
+            id: memory.id,
+            text: "Went bouldering in Bishop",
+            createdAt: memory.createdAt,
+            userID: contact.userID
+        )
+
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "bouldering").contains(contact.id))
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "hiking").contains(contact.id) == false)
+    }
+
+    @Test("editing a key thing's text re-indexes the contact")
+    func editKeyThingRefreshesSearchIndex() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let keyThingRepo = KeyThingRepository(database: database)
+
+        let keyThing = Fixtures.makeKeyThing(contactID: contact.id, text: "Allergic to shellfish")
+        try keyThingRepo.upsert(keyThing)
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "shellfish").contains(contact.id))
+
+        try keyThingRepo.edit(id: keyThing.id, text: "Allergic to peanuts", userID: contact.userID)
+
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "peanuts").contains(contact.id))
+        #expect(try ContactSearchIndex.searchContactIDs(database, query: "shellfish").contains(contact.id) == false)
+    }
+
     @Test("soft-deleting the contact removes it from search results")
     func softDeleteRemovesFromSearchResults() throws {
         let database = try Fixtures.makeDatabase()

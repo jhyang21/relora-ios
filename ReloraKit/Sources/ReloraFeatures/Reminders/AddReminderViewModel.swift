@@ -20,9 +20,12 @@ enum ReminderPrimingSession {
     static var primedThisSession = false
 }
 
-/// The add-reminder form's state and save path. Ports `AddReminderScreen.tsx`
-/// — RN has no edit screen for a reminder, only add, so there is no edit mode
-/// here either; see the M8b report.
+/// The add-reminder form's state and save path. Ports `AddReminderScreen.tsx`.
+///
+/// RN has only an add screen; 2.5.0 gave this one an edit mode, because a
+/// reminder whose time was wrong could not be corrected on either platform
+/// (Andrew's 2026-09-07 QA pass). Passing a `reminderID` loads that row and
+/// saves back over it; passing nil is the original behaviour, unchanged.
 @MainActor
 @Observable
 public final class AddReminderViewModel {
@@ -33,16 +36,20 @@ public final class AddReminderViewModel {
 
     @ObservationIgnored public let contactID: String
     @ObservationIgnored public let contactName: String
+    /// The row this form edits, or nil when it is creating one.
+    @ObservationIgnored public let reminderID: String?
     @ObservationIgnored private let database: AppDatabase
     @ObservationIgnored private let notifications: NotificationEnvironment
     @ObservationIgnored private let userIDProvider: () async -> String
     @ObservationIgnored private let onSaved: () -> Void
     @ObservationIgnored private let coordinator: ReminderNotificationPrimingCoordinator
     @ObservationIgnored private var pendingSave: ValidatedReminderDraft?
+    @ObservationIgnored private var hasLoaded = false
 
     public init(
         contactID: String,
         contactName: String,
+        reminderID: String? = nil,
         database: AppDatabase,
         notifications: NotificationEnvironment,
         userIDProvider: @escaping () async -> String,
@@ -50,6 +57,7 @@ public final class AddReminderViewModel {
     ) {
         self.contactID = contactID
         self.contactName = contactName
+        self.reminderID = reminderID
         self.database = database
         self.notifications = notifications
         self.userIDProvider = userIDProvider
@@ -59,6 +67,36 @@ public final class AddReminderViewModel {
             notifications: notifications,
             settings: AppSettingsStore(database: database)
         )
+    }
+
+    /// Whether this form is editing an existing reminder.
+    public var isEditing: Bool { reminderID != nil }
+
+    // MARK: Load
+
+    /// Fills the form from the row being edited. A no-op when there is no
+    /// `reminderID`, and it runs at most once, so a `.task` that fires twice
+    /// cannot throw away what the user has already typed.
+    ///
+    /// A `remindAt` already in the past is loaded as it stands. The picker's
+    /// lower bound is `Date()`, so SwiftUI shows it clamped to now, and
+    /// `AddReminderForm.validate` refuses to save until the user genuinely
+    /// moves it forward — which is the right outcome for an overdue reminder
+    /// someone opened in order to re-arm.
+    public func start() async {
+        guard let reminderID, !hasLoaded else { return }
+        hasLoaded = true
+
+        let database = self.database
+        let loaded = await Task.detached(priority: .userInitiated) {
+            try? ReminderRepository(database: database).get(id: reminderID)
+        }.value
+        guard let loaded else { return }
+
+        draft.title = loaded.title
+        if let remindAt = ReloraTimestamp.parse(loaded.remindAt) {
+            draft.remindAt = remindAt
+        }
     }
 
     // MARK: Save
@@ -132,22 +170,32 @@ public final class AddReminderViewModel {
     private func performSave(_ validated: ValidatedReminderDraft) async {
         let userID = await userIDProvider()
         let now = ReloraTimestamp.now()
+
+        let repository = ReminderRepository(database: database)
+        // The row as it stands before this write: nil for a new reminder, the
+        // real row for an edit. Read here rather than reusing what `start()`
+        // loaded, so `ReminderScheduling` decides against the row's current
+        // state — including a `notification_id` that may have changed since
+        // the sheet opened.
+        let existing = reminderID.flatMap { try? repository.get(id: $0) }
+
         let reminder = Reminder(
-            id: ReloraID.new(),
+            id: existing?.id ?? ReloraID.new(),
             contactID: contactID,
             userID: userID,
+            // Carried through so an edit never severs a voice-saved
+            // reminder from the memory it came out of.
+            memoryID: existing?.memoryID,
             title: validated.title,
             remindAt: validated.remindAtISO,
+            // Always `.scheduled`. Saving a future time for a reminder that
+            // already fired or was dismissed is someone re-arming it, and a
+            // row left `.dismissed` would never notify.
             status: .scheduled,
-            createdAt: now,
+            createdAt: existing?.createdAt ?? now,
             updatedAt: now
         )
 
-        let repository = ReminderRepository(database: database)
-        // Always nil in practice — every save here mints a fresh id — but
-        // looked up for real rather than assumed, so `ReminderScheduling`
-        // gets the same shape of input an edit path would give it.
-        let existing = try? repository.get(id: reminder.id)
         let notificationsEnabled = (try? AppSettingsStore(database: database).reminderNotificationsEnabled()) ?? true
         let decision = ReminderScheduling.decide(
             existing: existing,

@@ -8,6 +8,10 @@ public enum VoiceCaptureStage: String, Equatable, Sendable {
     /// before everything else — the quota gate and the microphone included.
     /// No RN counterpart; the Expo client never showed it.
     case disclosure
+    /// The refusal shown when a signed-in account taps record with no
+    /// network. Gated after the disclosure and the quota, before the
+    /// microphone. No RN counterpart.
+    case offline
     case recording
     case processing
     /// The review screen. RN's `'draft'`.
@@ -43,12 +47,26 @@ public enum VoiceCaptureCopy {
     public static let disclosureContinue = "Continue"
     public static let disclosureNotNow = "Not now"
 
+    // MARK: Offline
+
+    /// The refusal a signed-in account gets instead of the microphone when
+    /// there is no network. It says what is missing and what to do about it,
+    /// and it says so before the recording rather than after — which is the
+    /// whole of Andrew's 2026-09-07 ruling. "Wi‑Fi" carries a non-breaking
+    /// hyphen so it never wraps across two lines.
+    public static let offlineTitle = "You're offline"
+    public static let offlineBody =
+        "Voice notes need a connection to be transcribed. Connect to Wi‑Fi or cellular data and try again."
+    public static let offlineTryAgain = "Try again"
+    public static let offlineClose = "Close"
+
     // MARK: Header
 
     /// The small state line above the meter. RN's `getStateLabel`.
     public static func stateLabel(stage: VoiceCaptureStage, recording: VoiceRecordingState) -> String {
         switch stage {
         case .disclosure: return "Before you start"
+        case .offline: return "Offline"
         case .processing: return "Polishing note"
         case .draft: return "Draft ready"
         case .error: return "Try again"
@@ -70,6 +88,7 @@ public enum VoiceCaptureCopy {
     public static func title(stage: VoiceCaptureStage) -> String {
         switch stage {
         case .disclosure: return disclosureTitle
+        case .offline: return offlineTitle
         case .error: return "We could not finish that recording"
         case .processing: return "Turning that recording into a clean note"
         case .recording, .draft: return "Speak like you normally would"

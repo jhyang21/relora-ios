@@ -58,6 +58,21 @@ public struct RemindersView: View {
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
+                                    // The row's tap already opens the
+                                    // contact, so editing lives on the
+                                    // swipe. Declared after Delete so the
+                                    // full-swipe gesture keeps meaning what
+                                    // it meant before 2.5.0.
+                                    Button {
+                                        router.present(.addReminder(
+                                            contactID: row.reminder.contactID,
+                                            contactName: row.contactName,
+                                            reminderID: row.reminder.id
+                                        ))
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .tint(ReloraColor.accent)
                                 }
                                 .swipeActions(edge: .leading) {
                                     if row.reminder.status == .scheduled {

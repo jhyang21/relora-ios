@@ -20,7 +20,14 @@ struct VoiceDisclosurePanel: View {
     /// copy reads as an icon that failed to load.
     @ScaledMetric(relativeTo: .largeTitle) private var glyphSize: CGFloat = 40
 
+    /// Five stacked lines of copy at large Dynamic Type do not fit the
+    /// `.medium` detent this panel is shown at, so it scrolls: see
+    /// `voiceSheetScroll()`.
     var body: some View {
+        content.voiceSheetScroll()
+    }
+
+    private var content: some View {
         VStack(spacing: ReloraSpacing.lg) {
             Spacer(minLength: 0)
 
@@ -35,21 +42,25 @@ struct VoiceDisclosurePanel: View {
                     .font(ReloraFont.title3)
                     .foregroundStyle(ReloraColor.ink)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(VoiceCaptureCopy.disclosureBody)
                     .font(ReloraFont.body)
                     .foregroundStyle(ReloraColor.mutedInk)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(VoiceCaptureCopy.disclosurePrivacy)
                     .font(ReloraFont.footnote)
                     .foregroundStyle(ReloraColor.mutedInk)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(VoiceCaptureCopy.disclosureMicNotice)
                     .font(ReloraFont.footnote)
                     .foregroundStyle(ReloraColor.mutedInk)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Link(VoiceCaptureCopy.disclosurePrivacyLink, destination: SettingsLegal.privacyPolicyURL)
                     .font(ReloraFont.footnote)
@@ -72,6 +83,5 @@ struct VoiceDisclosurePanel: View {
         .padding(.horizontal, ReloraLayout.screenHPadding)
         .padding(.vertical, ReloraSpacing.lg)
         .frame(maxWidth: ReloraLayout.contentMaxWidth)
-        .frame(maxWidth: .infinity)
     }
 }

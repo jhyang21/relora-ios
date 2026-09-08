@@ -627,6 +627,42 @@ struct VoiceDisclosureTests {
     }
 }
 
+// MARK: - Voice offline gate
+
+@Suite("Voice offline gate")
+struct VoiceOfflineGateTests {
+
+    /// The whole truth table. Only one of the four blocks: a signed-in
+    /// account with no network. A guest never makes a request, so being
+    /// offline costs them nothing.
+    @Test func onlyASignedInAccountWithNoNetworkIsBlocked() {
+        #expect(VoiceOfflineGate.decide(isOnline: true, allowsLocalGuestFallback: true) == .proceed)
+        #expect(VoiceOfflineGate.decide(isOnline: true, allowsLocalGuestFallback: false) == .proceed)
+        #expect(VoiceOfflineGate.decide(isOnline: false, allowsLocalGuestFallback: true) == .proceed)
+        #expect(VoiceOfflineGate.decide(isOnline: false, allowsLocalGuestFallback: false) == .block)
+    }
+
+    /// Pinned byte for byte, like the disclosure copy. This is the only
+    /// thing a user offline sees, and "Wi-Fi" with an ordinary hyphen wraps
+    /// across two lines on a narrow sheet.
+    @Test func theOfflineCopyIsPinned() {
+        #expect(VoiceCaptureCopy.offlineTitle == "You're offline")
+        #expect(
+            VoiceCaptureCopy.offlineBody
+                == "Voice notes need a connection to be transcribed. Connect to Wi\u{2011}Fi or cellular data and try again."
+        )
+        #expect(VoiceCaptureCopy.offlineTryAgain == "Try again")
+        #expect(VoiceCaptureCopy.offlineClose == "Close")
+    }
+
+    /// Both exhaustive switches over `VoiceCaptureStage` answer for the new
+    /// case. A missing arm is a compile error, but a wrong answer is not.
+    @Test func theHeaderNamesTheStateAndTheTitleIsThePanelsOwn() {
+        #expect(VoiceCaptureCopy.stateLabel(stage: .offline, recording: .listening) == "Offline")
+        #expect(VoiceCaptureCopy.title(stage: .offline) == VoiceCaptureCopy.offlineTitle)
+    }
+}
+
 // MARK: - Save transaction: planning
 
 @Suite("Voice save plan")

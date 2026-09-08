@@ -111,6 +111,142 @@ struct MemoryRepositoryTests {
         #expect(restored?.transcript == "we talked about the project")
     }
 
+    // MARK: - get / edit
+
+    @Test("get returns the full row for an id, and nil for one that is not there")
+    func getReturnsRow() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        let memory = Fixtures.makeMemory(contactID: contact.id, text: "Coffee at Ape", transcript: "we talked")
+        try repo.upsert(memory)
+
+        let loaded = try repo.get(id: memory.id)
+        #expect(loaded?.text == "Coffee at Ape")
+        #expect(loaded?.transcript == "we talked")
+        #expect(try repo.get(id: "no-such-memory") == nil)
+    }
+
+    @Test("edit rewrites text and created_at and re-dirties the row")
+    func editRewritesTextAndDate() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        let memory = Fixtures.makeMemory(contactID: contact.id, text: "Original")
+        try repo.upsert(memory)
+        try clearDirtyFlags(database, id: memory.id)
+
+        let newCreatedAt = ReloraTimestamp.from(Date().addingTimeInterval(-86_400))
+        try repo.edit(id: memory.id, text: "Corrected", createdAt: newCreatedAt, userID: contact.userID)
+
+        let loaded = try repo.get(id: memory.id)
+        #expect(loaded?.text == "Corrected")
+        #expect(loaded?.createdAt == newCreatedAt)
+        #expect(loaded?.isDirty == true)
+        // `updated_at` and `dirty_at` are the same instant, the way every
+        // other local write in this module stamps them — `clearDirtyFlags`
+        // matches on `dirty_at` exactly, so it has to be a value the write
+        // actually stored.
+        #expect(loaded?.updatedAt == loaded?.dirtyAt)
+    }
+
+    /// Correcting the wording of a note must not throw away the recording it
+    /// came from, or the transcript that recording produced.
+    @Test("edit leaves transcript, labels and audio columns alone")
+    func editPreservesTranscriptAndAudio() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        var memory = Fixtures.makeMemory(
+            contactID: contact.id,
+            text: "Original",
+            labels: ["work"],
+            transcript: "the whole conversation"
+        )
+        memory.audioLocalURI = "recording.m4a"
+        memory.audioURL = "https://example.com/recording.m4a"
+        try repo.upsert(memory)
+
+        try repo.edit(id: memory.id, text: "Corrected", createdAt: memory.createdAt, userID: contact.userID)
+
+        let loaded = try repo.get(id: memory.id)
+        #expect(loaded?.transcript == "the whole conversation")
+        #expect(loaded?.audioLocalURI == "recording.m4a")
+        #expect(loaded?.audioURL == "https://example.com/recording.m4a")
+        #expect(loaded?.labels == ["work"])
+    }
+
+    @Test("edit does nothing to a soft-deleted row")
+    func editSkipsTombstonedRow() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        let memory = Fixtures.makeMemory(contactID: contact.id, text: "Original")
+        try repo.upsert(memory)
+        _ = try repo.softDelete(itemID: memory.id, contactID: contact.id, userID: contact.userID)
+
+        try repo.edit(id: memory.id, text: "Corrected", createdAt: memory.createdAt, userID: contact.userID)
+
+        #expect(try repo.get(id: memory.id)?.text == "Original")
+    }
+
+    @Test("edit does nothing under the wrong user id")
+    func editSkipsAnotherUsersRow() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        let memory = Fixtures.makeMemory(contactID: contact.id, text: "Original")
+        try repo.upsert(memory)
+
+        try repo.edit(id: memory.id, text: "Corrected", createdAt: memory.createdAt, userID: "someone-else")
+
+        #expect(try repo.get(id: memory.id)?.text == "Original")
+    }
+
+    /// An edited date re-orders the timeline, which is the whole reason the
+    /// date is editable.
+    @Test("list order follows an edited created_at")
+    func listOrderFollowsEditedDate() throws {
+        let database = try Fixtures.makeDatabase()
+        let contact = try makeContact(database)
+        let repo = MemoryRepository(database: database)
+
+        let older = Fixtures.makeMemory(contactID: contact.id, text: "Older")
+        try repo.upsert(older)
+
+        var newer = Fixtures.makeMemory(contactID: contact.id, text: "Newer")
+        newer.createdAt = ReloraTimestamp.from(Date().addingTimeInterval(1))
+        newer.updatedAt = newer.createdAt
+        try repo.upsert(newer)
+
+        #expect(try repo.list(contactID: contact.id).map(\.text) == ["Newer", "Older"])
+
+        try repo.edit(
+            id: older.id,
+            text: "Older",
+            createdAt: ReloraTimestamp.from(Date().addingTimeInterval(60)),
+            userID: contact.userID
+        )
+
+        #expect(try repo.list(contactID: contact.id).map(\.text) == ["Older", "Newer"])
+    }
+
+    /// Mimics what `SyncEngine.clearDirtyFlags` does after a successful push,
+    /// so the next assertion is about this write and not the one before it.
+    private func clearDirtyFlags(_ database: AppDatabase, id: String) throws {
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE memories SET is_dirty = 0, dirty_at = NULL WHERE id = ?",
+                arguments: [id]
+            )
+        }
+    }
+
     @Test("liveAudioLocalURIs returns the value a live memory points at")
     func liveAudioLocalURIsIncludesLiveRows() throws {
         let database = try Fixtures.makeDatabase()

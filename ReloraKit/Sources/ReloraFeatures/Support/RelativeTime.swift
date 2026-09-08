@@ -89,6 +89,27 @@ public enum ReloraRelativeTime {
             return relative(targetISO, now: nowISO)
         }
 
+        return calendarDateTime(target, now: now)
+    }
+
+    /// The calendar form, always: "Sep 3 at 4:25 PM", gaining the year once it
+    /// is not this one. Never relative, however recent the timestamp is.
+    ///
+    /// What a memory's date reads as (2.5.0). A memory carries a date the user
+    /// can correct, and "2 days ago" is not something anyone can check against
+    /// the conversation they remember having — a date they can read is the
+    /// point of showing it at all. Everything else in the product keeps
+    /// `friendlyDateTime`.
+    public static func absoluteDateTime(_ targetISO: String, now nowISO: String) -> String {
+        guard let target = ReloraTimestamp.parse(targetISO),
+              let now = ReloraTimestamp.parse(nowISO) else {
+            return ""
+        }
+        return calendarDateTime(target, now: now)
+    }
+
+    /// The shared calendar half of `friendlyDateTime` and `absoluteDateTime`.
+    private static func calendarDateTime(_ target: Date, now: Date) -> String {
         let calendar = Calendar.current
         let sameYear = calendar.component(.year, from: target) == calendar.component(.year, from: now)
 

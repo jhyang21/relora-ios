@@ -20,10 +20,9 @@ public enum ReminderScheduleDecision: Equatable, Sendable {
 }
 
 public enum ReminderScheduling {
-    /// `existing` is the row's state before this write (`nil` for a
-    /// brand-new reminder — always the case from `AddReminderViewModel`,
-    /// which mints a fresh id per save; kept general here for a future edit
-    /// path, per the M8b report). `candidate` is the value about to be
+    /// `existing` is the row's state before this write: `nil` for a
+    /// brand-new reminder, the current row when `AddReminderViewModel` is
+    /// editing one (2.5.0). `candidate` is the value about to be
     /// written; its `notificationID` is ignored on the way in — this
     /// function decides that field, it does not read it.
     public static func decide(

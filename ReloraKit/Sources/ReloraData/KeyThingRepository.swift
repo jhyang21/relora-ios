@@ -63,6 +63,52 @@ public struct KeyThingRepository: Sendable {
         }
     }
 
+    /// Fetches one key thing's full row, or nil when there is none with that
+    /// id. Mirrors `MemoryRepository.get(id:)` — what the edit sheet loads
+    /// before it can show anything.
+    public func get(id: String) throws -> KeyThing? {
+        try database.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM key_things WHERE id = ?",
+                arguments: [id]
+            ) else {
+                return nil
+            }
+            return try Self.mapKeyThing(row)
+        }
+    }
+
+    /// Rewrites one key thing's text and nothing else. Same shape and same
+    /// reasoning as `MemoryRepository.edit`, minus the date: a key thing has
+    /// no moment of its own, only a `created_at` nobody shows and an
+    /// `updated_at` the list sorts on. A row that is missing, tombstoned, or
+    /// owned by someone else matches nothing and the call is a no-op.
+    public func edit(id: String, text: String, userID: String) throws {
+        try database.write { db in
+            let now = ReloraTimestamp.now()
+            try db.execute(
+                sql: """
+                    UPDATE key_things
+                    SET text = ?, updated_at = ?, is_dirty = 1, dirty_at = ?
+                    WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+                    """,
+                arguments: [text, now, now, id, userID]
+            )
+            guard db.changesCount > 0 else { return }
+
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT contact_id FROM key_things WHERE id = ?",
+                arguments: [id]
+            ) else {
+                return
+            }
+            let contactID: String = row["contact_id"]
+            ContactSearchIndex.refreshRow(db, contactID: contactID)
+        }
+    }
+
     /// Tombstones a single key thing. See `ContactItemStore.softDelete`.
     public func softDelete(itemID: String, contactID: String, userID: String) throws -> ContactItemDeleteResult {
         try database.write { db in
