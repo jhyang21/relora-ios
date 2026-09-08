@@ -430,12 +430,8 @@ private extension View {
     /// one a full swipe performs, and Delete-on-full-swipe is the gesture
     /// this list has always had — an Edit that stole it would be a
     /// regression dressed as a feature. Delete is labelled per kind so
-    /// VoiceOver's actions rotor says what it would delete.
-    ///
-    /// `accessibilityAction` repeats Edit for VoiceOver. Swipe actions do
-    /// reach the rotor on their own, but the tap that opens the editor is
-    /// the primary path here and an explicitly named action is the one way
-    /// to state it.
+    /// VoiceOver's actions rotor says what it would delete; both actions
+    /// reach the rotor on their own.
     func rowActions(
         kind: ContactItemKind,
         edit: @escaping () -> Void,
@@ -451,6 +447,5 @@ private extension View {
             }
             .tint(ReloraColor.accent)
         }
-        .accessibilityAction(named: "Edit", edit)
     }
 }
