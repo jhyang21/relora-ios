@@ -20,17 +20,11 @@ struct VoiceDisclosurePanel: View {
     /// copy reads as an icon that failed to load.
     @ScaledMetric(relativeTo: .largeTitle) private var glyphSize: CGFloat = 40
 
-    /// The panel is shown at the `.medium` detent, where five stacked lines
-    /// of copy at large Dynamic Type do not fit. It scrolls rather than
-    /// letting SwiftUI answer the short proposal by truncating the text.
+    /// Five stacked lines of copy at large Dynamic Type do not fit the
+    /// `.medium` detent this panel is shown at, so it scrolls: see
+    /// `voiceSheetScroll()`.
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                content
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
+        content.voiceSheetScroll()
     }
 
     private var content: some View {

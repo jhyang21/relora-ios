@@ -20,17 +20,10 @@ struct VoiceOfflinePanel: View {
     /// copy reads as an icon that failed to load.
     @ScaledMetric(relativeTo: .largeTitle) private var glyphSize: CGFloat = 40
 
-    /// Scrolls rather than squeezes, for the same reason the disclosure
-    /// panel does: the sheet can be at `.medium`, and a short vertical
-    /// proposal is answered with an ellipsis rather than a shorter panel.
+    /// Scrolls for the same reason the disclosure panel does: see
+    /// `voiceSheetScroll()`.
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                content
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
+        content.voiceSheetScroll()
     }
 
     private var content: some View {

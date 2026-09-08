@@ -107,7 +107,6 @@ struct KeyThingRepositoryTests {
         let loaded = try repo.get(id: keyThing.id)
         #expect(loaded?.text == "Drinks soy milk")
         #expect(loaded?.isDirty == true)
-        #expect(loaded?.dirtyAt != nil)
         #expect(loaded?.updatedAt == loaded?.dirtyAt)
         // The moment it was first noted does not move when the fact is
         // corrected — only `updated_at` does.

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// ## Ordering
 ///
-/// Fourth of four: disclosure → quota → offline → microphone. It runs after
+/// Third of four: disclosure → quota → offline → microphone. It runs after
 /// `VoiceQuotaGate.decide` because a user who is out of notes should be told
 /// that, not told to find Wi‑Fi and then told that. It runs before the
 /// microphone because the whole point is to refuse before the recording, not

@@ -17,11 +17,7 @@ public enum PhoneNumberFormat {
     /// ASCII digits only: `Character.isNumber` is also true for "٣" and "Ⅷ",
     /// neither of which belongs in a dialable string.
     private static func extractDigits(_ value: String) -> [Character] {
-        var digits: [Character] = []
-        for character in value where ("0"..."9").contains(character) {
-            digits.append(character)
-        }
-        return digits
+        Array(value.filter { ("0"..."9").contains($0) })
     }
 
     /// Area code and exchange both start 2–9 in every NANP number, so a

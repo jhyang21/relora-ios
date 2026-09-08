@@ -20,8 +20,9 @@ public struct ContactItemEditView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     /// What the row said before this sheet opened, for the footer's "Relora
-    /// recorded this on …" line and as the fallback if the picker is never
-    /// touched.
+    /// recorded this on …" line and as the value written back when the stored
+    /// timestamp did not parse — the one case where there is no picker to
+    /// read a date from.
     @State private var originalCreatedAt: String?
 
     private let target: AppRouter.ContactItemEditTarget

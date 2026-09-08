@@ -145,7 +145,6 @@ struct MemoryRepositoryTests {
         #expect(loaded?.text == "Corrected")
         #expect(loaded?.createdAt == newCreatedAt)
         #expect(loaded?.isDirty == true)
-        #expect(loaded?.dirtyAt != nil)
         // `updated_at` and `dirty_at` are the same instant, the way every
         // other local write in this module stamps them — `clearDirtyFlags`
         // matches on `dirty_at` exactly, so it has to be a value the write

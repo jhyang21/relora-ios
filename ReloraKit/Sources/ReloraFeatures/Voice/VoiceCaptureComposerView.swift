@@ -166,20 +166,12 @@ public struct VoiceCaptureComposerView: View {
 
     // MARK: Recording, processing, error
 
-    /// Scrolls rather than squeezes. A plain VStack at the `.medium` detent
-    /// has less height than the error card's prose needs at large Dynamic
-    /// Type, and SwiftUI answers a short proposal by truncating the text —
-    /// which is how "We could not finish that recording" arrived on screen
-    /// ending in an ellipsis. `minHeight` keeps the centred look while there
-    /// is room and lets the content grow past it when there is not.
+    /// Scrolls rather than squeezes: see `voiceSheetScroll()`. The error
+    /// card's prose is what forced it — at `.medium` and large Dynamic Type
+    /// "We could not finish that recording" arrived on screen ending in an
+    /// ellipsis.
     private var captureShell: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                captureContent
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
+        captureContent.voiceSheetScroll()
     }
 
     private var captureContent: some View {

@@ -177,10 +177,7 @@ public final class AddReminderViewModel {
         // loaded, so `ReminderScheduling` decides against the row's current
         // state — including a `notification_id` that may have changed since
         // the sheet opened.
-        var existing: Reminder?
-        if let reminderID {
-            existing = try? repository.get(id: reminderID)
-        }
+        let existing = reminderID.flatMap { try? repository.get(id: $0) }
 
         let reminder = Reminder(
             id: existing?.id ?? ReloraID.new(),

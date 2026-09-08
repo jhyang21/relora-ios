@@ -304,7 +304,6 @@ struct RelativeTimeTests {
         let absolute = ReloraRelativeTime.absoluteDateTime(anHourAgo, now: now)
 
         #expect(!absolute.isEmpty)
-        #expect(absolute != "1 hour ago")
         #expect(absolute != ReloraRelativeTime.relative(anHourAgo, now: now))
         #expect(absolute != ReloraRelativeTime.friendlyDateTime(anHourAgo, now: now))
     }

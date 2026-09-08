@@ -9,8 +9,8 @@ public enum VoiceCaptureStage: String, Equatable, Sendable {
     /// No RN counterpart; the Expo client never showed it.
     case disclosure
     /// The refusal shown when a signed-in account taps record with no
-    /// network. Second because it is gated second: after the disclosure and
-    /// the quota, before the microphone. No RN counterpart.
+    /// network. Gated after the disclosure and the quota, before the
+    /// microphone. No RN counterpart.
     case offline
     case recording
     case processing
