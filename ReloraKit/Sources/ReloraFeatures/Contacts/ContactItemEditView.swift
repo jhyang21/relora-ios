@@ -77,7 +77,7 @@ public struct ContactItemEditView: View {
 
     private var recordedFooter: String {
         guard let originalCreatedAt else { return "" }
-        let when = ReloraRelativeTime.absoluteDateTime(originalCreatedAt, now: ReloraTimestamp.now())
+        let when = ReloraRelativeTime.absoluteDate(originalCreatedAt)
         guard !when.isEmpty else { return "" }
         return "Relora recorded this on \(when). Change it if the conversation happened at a different time."
     }
@@ -98,7 +98,11 @@ public struct ContactItemEditView: View {
                             "Date",
                             selection: dateBinding,
                             in: ...Date(),
-                            displayedComponents: [.date, .hourAndMinute]
+                            // Day only. The row shows no time, so there is
+                            // nothing for a time wheel to correct; picking a
+                            // day keeps the recorded time of day underneath,
+                            // which is what orders two notes from one day.
+                            displayedComponents: [.date]
                         )
                     } header: {
                         Text("When")

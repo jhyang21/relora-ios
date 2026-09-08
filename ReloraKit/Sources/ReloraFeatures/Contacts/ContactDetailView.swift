@@ -369,7 +369,7 @@ struct MemoryRow: View {
                     // Absolute, not relative. A memory's date is the one the
                     // user can now correct, and "2 days ago" is not something
                     // anyone can check against the conversation they remember.
-                    meta: ReloraRelativeTime.absoluteDateTime(memory.createdAt, now: nowISO)
+                    meta: ReloraRelativeTime.absoluteDate(memory.createdAt)
                 )
             }
             .buttonStyle(.plain)
