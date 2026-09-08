@@ -131,6 +131,17 @@ catalog in `ReloraCore/Backend.swift` — one catalog, no string forks.
   offline capture "record now, send later". Do not reintroduce it.
   `VoiceCaptureEnvironment.isOnline` stays for M7's realtime-vs-batch
   resolution.
+- **Reversed 2026-09-07 — the offline gate is back, for signed-in users
+  only.** Andrew's QA pass on 2.4.1 (build 9) found the ruling above
+  fails in practice: "record now, send later" was never discoverable,
+  because nothing said it and the failure only arrived after the whole
+  recording. `VoiceOfflineGate` now blocks a signed-in `.account`
+  identity that is offline, before the microphone and after the quota
+  gate, and the composer shows `VoiceCaptureStage.offline`. Guests are
+  unchanged and still record offline — their flow makes no request at
+  all. The kept-audio Retry path is unchanged too; it now catches the
+  connection that drops mid-capture rather than the one that was never
+  there.
 - **Audio replay is an M7 deliverable, not an optional polish.** RN ships
   `AudioReplayButton` in two surfaces — the voice review section and
   `ContactDetailScreen` memory rows (`audio_local_uri`). The native app

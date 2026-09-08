@@ -13,8 +13,11 @@ import ReloraDesign
 ///
 /// Recording sits at `.medium`: a focused moment with one control, and a
 /// half-height sheet leaves the contact list visible behind it. The review is
-/// a form, so reaching `.draft` raises the sheet to `.large`. The change is
-/// driven by a selection binding, which animates rather than snapping.
+/// a form, and the error and offline panels are prose, so `.draft`, `.error`
+/// and `.offline` raise the sheet to `.large`. The change is driven by a
+/// selection binding, which animates rather than snapping. Every stage also
+/// scrolls, so a half-height sheet at large Dynamic Type cannot clip its own
+/// text.
 public struct VoiceCaptureComposerView: View {
     @State private var model: VoiceCaptureViewModel
     @State private var detent: PresentationDetent = .medium
@@ -53,6 +56,13 @@ public struct VoiceCaptureComposerView: View {
                         // at this stage, so it closes without a confirmation.
                         onNotNow: { model.requestClose() }
                     )
+                } else if model.stage == .offline {
+                    VoiceOfflinePanel(
+                        onTryAgain: { Task { await model.retryOffline() } },
+                        // Nothing has been captured at this stage either, so
+                        // Close leaves without a confirmation.
+                        onClose: { model.requestClose() }
+                    )
                 } else if model.stage == .draft {
                     reviewShell
                 } else {
@@ -89,9 +99,17 @@ public struct VoiceCaptureComposerView: View {
         }
         .onChange(of: model.stage) { _, stage in
             // The review is a form. Raising the sheet for it is the difference
-            // between editing a note and peering at one through a slot.
-            if stage == .draft {
+            // between editing a note and peering at one through a slot. The
+            // error card and the offline panel are raised for the same reason:
+            // both are several lines of prose the user has to read to know
+            // what to do next, and at `.medium` they were the two places the
+            // sheet cut its own text off.
+            if stage == .draft || stage == .error || stage == .offline {
                 withReloraAnimation(.gentle) { detent = .large }
+            } else if stage == .recording {
+                // Back down for the meter, so a recording that follows the
+                // offline panel gets the same half-height sheet as any other.
+                withReloraAnimation(.gentle) { detent = .medium }
             }
         }
         .sheet(isPresented: $model.isPickerPresented) {
@@ -148,7 +166,23 @@ public struct VoiceCaptureComposerView: View {
 
     // MARK: Recording, processing, error
 
+    /// Scrolls rather than squeezes. A plain VStack at the `.medium` detent
+    /// has less height than the error card's prose needs at large Dynamic
+    /// Type, and SwiftUI answers a short proposal by truncating the text —
+    /// which is how "We could not finish that recording" arrived on screen
+    /// ending in an ellipsis. `minHeight` keeps the centred look while there
+    /// is room and lets the content grow past it when there is not.
     private var captureShell: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                captureContent
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var captureContent: some View {
         VStack(spacing: ReloraSpacing.lg) {
             Spacer(minLength: 0)
 
@@ -165,6 +199,9 @@ public struct VoiceCaptureComposerView: View {
                     .font(ReloraFont.title3)
                     .foregroundStyle(ReloraColor.ink)
                     .multilineTextAlignment(.center)
+                    // Take the height the wrapped lines need. Without it a
+                    // short vertical proposal is answered with an ellipsis.
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if model.stage == .recording {
                     Text(VoiceCaptureCopy.recordingSubtitle(isLiveTranscribing: model.isLiveTranscribing))
@@ -194,7 +231,6 @@ public struct VoiceCaptureComposerView: View {
         .padding(.horizontal, ReloraLayout.screenHPadding)
         .padding(.vertical, ReloraSpacing.lg)
         .frame(maxWidth: ReloraLayout.contentMaxWidth)
-        .frame(maxWidth: .infinity)
     }
 
     private var meterCard: some View {
@@ -249,6 +285,7 @@ public struct VoiceCaptureComposerView: View {
                 Text(model.errorMessage ?? VoiceErrorCopy.message(for: BackendError.transcribeFailed))
                     .font(ReloraFont.body)
                     .foregroundStyle(ReloraColor.ink)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(
                     VoiceCaptureCopy.errorBody(
@@ -258,6 +295,7 @@ public struct VoiceCaptureComposerView: View {
                 )
                 .font(ReloraFont.footnote)
                 .foregroundStyle(ReloraColor.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
 
                 errorActions
             }
