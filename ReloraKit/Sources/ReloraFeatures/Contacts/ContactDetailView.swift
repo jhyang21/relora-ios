@@ -117,7 +117,6 @@ public struct ContactDetailView: View {
                     ForEach(model.snapshot.memories, id: \.id) { memory in
                         MemoryRow(
                             memory: memory,
-                            nowISO: nowISO,
                             onEdit: { editMemory(memory.id) }
                         )
                         .rowActions(kind: .memory) {
@@ -348,7 +347,6 @@ struct ContactDetailHeader: View {
 /// swipe action carries Edit for anyone who taps the transcript instead.
 struct MemoryRow: View {
     let memory: Memory
-    let nowISO: String
     let onEdit: () -> Void
 
     @State private var isTranscriptExpanded = false

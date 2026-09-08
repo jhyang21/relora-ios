@@ -308,7 +308,7 @@ struct RelativeTimeTests {
         #expect(absolute != ReloraRelativeTime.friendlyDateTime(anHourAgo, now: now))
     }
 
-    /// The day with its year, and no time of day — Andrew's call, 2026-09-08.
+    /// The day with its year, and no time of day — Andrew's call, 2026-09-07.
     @Test("Absolute is the day and the year, never the time")
     func absoluteIsDayAndYear() {
         let absolute = ReloraRelativeTime.absoluteDate(iso(daysFromNow: -30))

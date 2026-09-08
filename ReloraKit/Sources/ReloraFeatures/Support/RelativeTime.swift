@@ -98,7 +98,7 @@ public enum ReloraRelativeTime {
     /// What a memory's date reads as. A memory carries a date the user can
     /// correct, and "2 days ago" is not something anyone can check against the
     /// conversation they remember having — a date they can read is the point
-    /// of showing it at all. The time of day is left off (Andrew, 2026-09-08):
+    /// of showing it at all. The time of day is left off (Andrew, 2026-09-07):
     /// a conversation is remembered by its day, not its minute. Everything
     /// else in the product keeps `friendlyDateTime`.
     public static func absoluteDate(_ targetISO: String) -> String {
