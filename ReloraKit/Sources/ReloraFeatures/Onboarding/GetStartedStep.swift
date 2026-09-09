@@ -84,11 +84,14 @@ public final class GetStartedViewModel {
     /// `IdentityController` has no matching resume-intent seam, and adding
     /// one is outside this milestone's file ownership. The auth sheet opens
     /// either way — only the "remember why it opened across a kill"
-    /// behavior is missing. `AuthGateSource` also has no `.onboarding`
-    /// case, so this uses `.settings`, the same choice already made for
-    /// Settings' own account entry point.
+    /// behavior is missing.
+    ///
+    /// 2.6.0: the source is `.onboarding` and the sheet opens in create
+    /// mode. Somebody at the end of onboarding has never had a Relora
+    /// account; borrowing `.settings` here gave them a screen headed
+    /// "Welcome back".
     public func openAccount() {
-        router.presentAuthGate(AuthGateContext(action: .signIn, source: .settings))
+        router.presentAuthGate(AuthGateContext(action: .signIn, source: .onboarding))
     }
 }
 
@@ -150,12 +153,11 @@ struct GetStartedStepView: View {
             .buttonStyle(.reloraPrimary)
             .disabled(viewModel.isLoading)
 
-            Button("Create account / Sign in") {
+            Button("Create account") {
                 viewModel.openAccount()
             }
             .buttonStyle(.reloraSecondary)
             .disabled(viewModel.isLoading)
-            .accessibilityLabel("Create account or sign in")
         }
         .task {
             viewModel.load()

@@ -417,6 +417,49 @@ for after the first green build.
    is internal (test-shaped visibility) but `ReloraDesignTests` has no
    test for it. Either add the test or tighten to `private` later.
 
+## 5g. 2.6.0 flags (auth redesign), highest risk first
+
+1. `ReloraFormField` / `ReloraSecureFormField` take focus as a
+   `FocusState<Field?>.Binding` stored property and compare
+   `focus.wrappedValue == field` for the focus ring. Check the generic
+   binding compiles under Swift 6 and that `.focused(focus, equals: field)`
+   accepts the non-optional `field` against an optional-valued binding.
+2. The reveal toggle swaps `SecureField` for `TextField` inside a `Group`
+   and re-asserts focus. Confirm the keyboard stays up, the caret does not
+   jump to the start of the string, and the field does not lose its text.
+3. `AccessibilityNotification.Announcement(message).post()` in
+   `ReloraInlineError.onAppear` — the M11 deferral. Verify with VoiceOver
+   that a failed submit is spoken once, not twice, and that it does not
+   collide with the field label.
+4. Password autofill: `.newPassword` in create mode must produce the iOS
+   strong-password sheet and the save-to-Keychain offer; `.password` in
+   sign-in mode must fill a saved credential. The old screen used
+   `.password` for both and got neither.
+5. `Text(.init(AuthCopy.legalDisclosure))` renders markdown links from a
+   runtime `String` through `LocalizedStringKey`. Confirm both links draw
+   tinted and open, and that the `accessibilityLabel` override is what
+   VoiceOver reads.
+6. `AuthErrorCopy` matches on lowercased error text, not on the SDK's error
+   enum (see the file's own reasoning). Once a device can produce real
+   failures, capture the actual strings for wrong password, taken address,
+   weak password and rate limiting, and reconcile `Signal`. An unmatched
+   error is safe — it falls back to the generic sentence — so this is a
+   quality pass, not a blocker.
+7. `AuthViewModelTests`' two in-flight tests use a bounded `Task.yield()`
+   loop (`waitUntil`) to observe the view model mid-call. If they fail on
+   CI rather than hang, look here first.
+8. `.scrollDismissesKeyboard(.interactively)` on both auth sheets — check
+   it does not fight the sheet's own drag-to-dismiss.
+9. `ReloraOrDivider` and `AuthErrorCopy.Intent.appleSignIn` are unused
+   until PR 2. Expect an unused-symbol warning at most.
+
+**Smoke test once it runs:** create an account; create one on an address
+that already exists and take the offered switch, confirming both fields
+survive; sign in with a wrong password and read the message; request a
+reset from an empty field and from a filled one; airplane-mode every
+submit; iPhone SE with the keyboard up; largest accessibility text size;
+dark mode; VoiceOver end to end.
+
 ## 6. Behavior spot-checks once it runs
 
 - Voice-less smoke test: add a contact, edit, delete with Undo, search,

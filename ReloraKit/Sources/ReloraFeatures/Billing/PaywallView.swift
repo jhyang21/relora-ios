@@ -13,7 +13,7 @@ import ReloraServices
 /// beyond routing.
 ///
 /// A guest who chooses a plan or taps Restore is routed through a nested
-/// `AuthGateView` sheet rather than RN's separate `AuthGate` screen plus a
+/// `AuthView` sheet rather than RN's separate `AuthGate` screen plus a
 /// storage-persisted `pendingAuthIntent`. The intent lives in `@State` here
 /// instead: once `identity.identity` becomes `.account` while that sheet is
 /// showing, the pending purchase or restore resumes automatically. See the
@@ -86,7 +86,7 @@ public struct PaywallView: View {
             }
         }
         .sheet(item: $pendingAuthGate) { action in
-            AuthGateView(context: authGateContext(for: action), identity: identity, toasts: toasts)
+            AuthView(context: authGateContext(for: action), identity: identity)
         }
         .onChange(of: identity.identity) { _, newValue in
             guard case .account = newValue, let action = resumeAction else { return }

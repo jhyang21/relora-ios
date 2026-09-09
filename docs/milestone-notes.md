@@ -806,3 +806,82 @@ variable font live in `Relora/Fonts/`; `UIAppFonts` is declared in
 `Info.plist`. PostScript names match `Typography.swift`'s
 `Font.custom` names exactly (`DMSans-SemiBold` included — the static
 upstream exports lack it, which is why the faces are instanced).
+
+## 2.6.0 — Create Account / Sign In redesign (PR 1 of 2)
+
+`Billing/AuthGateView.swift` is deleted. The screen now lives in
+`ReloraFeatures/Auth/` as four files — `AuthGateContext` (the types, moved
+verbatim plus `AuthMode` and `initialMode`), `AuthCopy`, `AuthViewModel`
+and `AuthView`. Auth was never a billing feature; it was in `Billing/`
+because the paywall happened to be the first caller.
+
+**The problem.** One form carried two live submit buttons, "Create
+account" filled and "Sign in" outlined. Nothing said which belonged to the
+person looking at it, so a returning user's action was the quieter button
+and a mistap made a second account. Every failure arrived as
+`error.localizedDescription` from supabase-swift, in a toast that erases
+itself after four seconds from behind the keyboard.
+
+**What changed**
+
+- **One mode at a time.** The caller states it
+  (`AuthGateContext.initialMode`, derived from action and source), the
+  headline says it, and one primary button acts on it. The other mode is a
+  link under the form that keeps whatever has been typed — the recovery
+  path for the commonest failure on the screen.
+- **`AuthGateSource.onboarding`** exists now, so `GetStartedStep` no longer
+  borrows `.settings` and gets "Welcome back" for somebody who has never
+  had an account. Its button reads "Create account", not
+  "Create account / Sign in".
+- **Errors are inline and stay put** (`ReloraInlineError`), under the field
+  they belong to, until the input changes. `ReloraServices/AuthErrorCopy.swift`
+  maps a throw to a sentence and, where one exists, an offer: a taken
+  address offers the switch to sign in; a wrong password offers the reset.
+  No auth failure reaches a toast any more. `SetNewPasswordView` was
+  changed the same way.
+- **Email is trimmed on every call that sends one.** It used to be trimmed
+  on reset and nowhere else. `ReloraServices/EmailAddress.swift` also
+  shape-checks it before the round trip, and deliberately never lowercases
+  or strips plus-tags.
+- **Focus chains, the return key submits**, the keyboard dismisses on
+  scroll, the password reveals, and sign-up uses `.newPassword` so iOS
+  offers the strong-password generator and the Keychain save that
+  `.password` suppressed.
+- **Forgot password uses the address already in the field** instead of
+  refusing and asking for it.
+- **Terms and Privacy** appear in create mode, linking the same URLs
+  Settings already uses (`SettingsLegal`). No checkbox, nothing
+  pre-consented, no security claims.
+- **New in `ReloraDesign`:** `ReloraFormField` / `ReloraSecureFormField`
+  (label above the field, focus ring, error border, reveal),
+  `ReloraInlineError`, `ReloraOrDivider`, `ReloraTertiaryButtonStyle`. The
+  package had no shared text field at all, which is why the two auth
+  screens styled theirs differently. `ReloraOrDivider` is unused until the
+  Sign in with Apple PR lands above it.
+
+**Expo parity is broken on purpose** (Andrew's call, this session). Android
+keeps `AuthGateScreen.tsx` as it stands. Reconciling later means porting:
+the mode split, the inline error mapping, email trimming, the onboarding
+source, and the create-mode legal line.
+
+**The one enumeration tradeoff.** Sign-up tells the user an address is
+already taken, because Supabase returns that with email confirmation off
+and the alternative is the dead end this redesign exists to remove.
+Password reset says nothing either way, and `AuthErrorCopy` collapses
+every reset failure but rate-limiting to a generic sentence so it cannot
+become an account-existence oracle. Tested
+(`AuthErrorCopyTests.passwordResetLeaksNothing`).
+
+**Deliberately not built**
+
+- **No resend-confirmation.** The notice gained a "use a different email"
+  way out but not a resend: `AuthBackend` has no resend method, the branch
+  is unreachable while confirmation is off on the project, and adding an
+  unverifiable SDK call for dead code is a bad trade. Revisit when
+  confirmation is turned on.
+- **No analytics, no localization.** Same reasons as M9 and M11: neither
+  layer exists, and adding one for a single screen implies the other forty
+  have it.
+- **Sign in with Apple is PR 2**, because the entitlement breaks signed
+  archives until the App ID carries the capability.
+- The pending-auth-intent gap M9 and M10 both recorded is still open.
