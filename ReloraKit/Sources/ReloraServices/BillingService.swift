@@ -114,7 +114,7 @@ public enum PurchaseOutcome: Sendable, Equatable {
     case cancelled
     /// Mirrors `purchaseSelectedPlan`'s early-return message: "Create your
     /// account to link your subscription first." A guest must go through
-    /// `AuthGateView` before this is retried.
+    /// the auth sheet before this is retried.
     case requiresAccount
     case failed(String)
 }

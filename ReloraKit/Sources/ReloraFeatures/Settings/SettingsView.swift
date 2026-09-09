@@ -146,7 +146,7 @@ public struct SettingsView: View {
             PaywallView(reason: reason, billing: billing, identity: identity, toasts: toasts)
 
         case .authGate(let context):
-            AuthGateView(context: context, identity: identity, toasts: toasts)
+            AuthView(context: context, identity: identity)
 
         case .contactImport:
             ContactImportView(database: database, toasts: toasts, userIDProvider: userIDProvider)

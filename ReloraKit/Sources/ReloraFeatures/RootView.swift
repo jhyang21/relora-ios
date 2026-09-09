@@ -249,7 +249,7 @@ public struct RootView: View {
             PaywallView(reason: reason, billing: billing, identity: identity, toasts: toasts)
 
         case .authGate:
-            AuthGateView(context: router.authGateContext, identity: identity, toasts: toasts)
+            AuthView(context: router.authGateContext, identity: identity)
 
         case .setNewPassword:
             SetNewPasswordView(identity: identity, toasts: toasts)

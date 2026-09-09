@@ -166,6 +166,22 @@ public final class IdentityController: Sendable {
         return identity
     }
 
+    /// Opens a session from an Apple identity token.
+    ///
+    /// Deliberately the same three lines as `signIn`: the work that matters
+    /// happens in `hydrate`, which is what moves a guest's local rows onto the
+    /// new account id. An Apple sign-in that talked to the backend directly
+    /// would strand every note the person wrote before they had an account.
+    ///
+    /// No deep link is involved, so none of `AuthDeepLink`'s PKCE rules apply
+    /// here.
+    @discardableResult
+    public func signInWithApple(idToken: String, nonce: String) async throws -> Identity {
+        let session = try await authBackend.signInWithApple(idToken: idToken, nonce: nonce)
+        await hydrate(session: session, source: "sign-in-apple")
+        return identity
+    }
+
     /// Ends the session and returns identity to the bootstrap path,
     /// without touching local rows: they keep the signed-out account's
     /// `user_id` and reattach, dirty flags intact, on the next sign-in to

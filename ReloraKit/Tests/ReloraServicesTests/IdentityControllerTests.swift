@@ -27,24 +27,28 @@ private actor FakeAuthBackend: AuthBackend {
     private var signInAnonymouslyBehavior: SignInAnonymouslyBehavior
     private var signUpResult: Result<AuthSession?, Error>
     private var signInResult: Result<AuthSession, Error>
+    private var signInWithAppleResult: Result<AuthSession, Error>
     private var sessionFromURLResult: Result<AuthSession, Error>
 
     private(set) var signInAnonymouslyCallCount = 0
     private(set) var signOutCallCount = 0
     private(set) var resetPasswordCalls: [(email: String, redirectTo: URL?)] = []
     private(set) var updatePasswordCalls: [String] = []
+    private(set) var signInWithAppleCalls: [(idToken: String, nonce: String)] = []
 
     init(
         currentSession: AuthSession? = nil,
         signInAnonymously: SignInAnonymouslyBehavior = .fail(FakeAuthError()),
         signUpResult: Result<AuthSession?, Error> = .failure(FakeAuthError()),
         signInResult: Result<AuthSession, Error> = .failure(FakeAuthError()),
+        signInWithAppleResult: Result<AuthSession, Error> = .failure(FakeAuthError()),
         sessionFromURLResult: Result<AuthSession, Error> = .failure(FakeAuthError())
     ) {
         self._currentSession = currentSession
         self.signInAnonymouslyBehavior = signInAnonymously
         self.signUpResult = signUpResult
         self.signInResult = signInResult
+        self.signInWithAppleResult = signInWithAppleResult
         self.sessionFromURLResult = sessionFromURLResult
     }
 
@@ -67,6 +71,12 @@ private actor FakeAuthBackend: AuthBackend {
 
     func signUp(email: String, password: String) async throws -> AuthSession? { try signUpResult.get() }
     func signIn(email: String, password: String) async throws -> AuthSession { try signInResult.get() }
+
+    func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession {
+        signInWithAppleCalls.append((idToken, nonce))
+        return try signInWithAppleResult.get()
+    }
+
     func signOut() async throws { signOutCallCount += 1 }
     func resetPassword(email: String, redirectTo: URL?) async throws { resetPasswordCalls.append((email, redirectTo)) }
     func updatePassword(_ newPassword: String) async throws { updatePasswordCalls.append(newPassword) }
@@ -327,6 +337,41 @@ private final class CallLog: @unchecked Sendable {
     #expect(calls.first?.fromUserID == "anon-1")
     #expect(calls.first?.toUserID == "acct-2")
     #expect(calls.first?.source.hasSuffix("-anonymous") == true)
+}
+
+/// The whole reason `signInWithApple` lives on the controller rather than
+/// being called straight from the button: a person can write notes as a guest
+/// for weeks and then sign in with Apple, and those notes have to follow them
+/// onto the account.
+@Test @MainActor func appleSignInMigratesAStoredGuestAndClearsItsMarker() async throws {
+    let backend = FakeAuthBackend(signInWithAppleResult: .success(accountSession(userID: "acct-6")))
+    let migration = FakeOwnershipMigration()
+    let fixture = makeController(authBackend: backend, ownershipMigration: migration, guestID: "local-guest-6")
+
+    _ = try? await fixture.controller.signInWithApple(idToken: "id-token", nonce: "raw-nonce")
+
+    #expect(fixture.controller.identity == .account(userID: "acct-6", email: "person@example.com"))
+    let calls = migration.runMigrationCalls
+    #expect(calls.count == 1)
+    #expect(calls.first?.fromUserID == "local-guest-6")
+    #expect(calls.first?.toUserID == "acct-6")
+    #expect(try fixture.guestStore.read() == nil)
+}
+
+/// Supabase hashes the nonce again and compares it with the one inside the
+/// token, so sending the SHA-256 instead of the raw string fails every Apple
+/// sign-in. Asserting the pass-through here is cheaper than reading it back
+/// off a failed build.
+@Test @MainActor func appleSignInPassesTheTokenAndTheRawNonceStraightThrough() async throws {
+    let backend = FakeAuthBackend(signInWithAppleResult: .success(accountSession(userID: "acct-7")))
+    let fixture = makeController(authBackend: backend)
+
+    _ = try? await fixture.controller.signInWithApple(idToken: "id-token", nonce: "raw-nonce")
+
+    let calls = await backend.signInWithAppleCalls
+    #expect(calls.count == 1)
+    #expect(calls.first?.idToken == "id-token")
+    #expect(calls.first?.nonce == "raw-nonce")
 }
 
 @Test @MainActor func everyHydrationResumesAnyPendingMigrationFirst() async throws {

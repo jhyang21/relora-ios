@@ -24,6 +24,9 @@ import ReloraCore
 ///     `UserAttributes`'s exact initializer
 ///   - `resetPasswordForEmail(_:redirectTo:)` vs. `resetPassword(...)`
 ///   - `session(from:)` vs. some other name for the deep-link case
+///   - `signInWithIdToken(credentials:)` and `OpenIDConnectCredentials`'s
+///     initializer — the Apple path, added later than the rest of this file
+///     and never compiled either
 ///   - whether `Session.user.id` is `UUID` (assumed below, mapped via
 ///     `.uuidString`) or already `String`
 public final class SupabaseAuthBackend: AuthBackend {
@@ -77,6 +80,12 @@ public final class SupabaseAuthBackend: AuthBackend {
 
     public func signIn(email: String, password: String) async throws -> AuthSession {
         Self.map(try await client.signIn(email: email, password: password))
+    }
+
+    public func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession {
+        Self.map(try await client.signInWithIdToken(
+            credentials: OpenIDConnectCredentials(provider: .apple, idToken: idToken, nonce: nonce)
+        ))
     }
 
     public func signOut() async throws {

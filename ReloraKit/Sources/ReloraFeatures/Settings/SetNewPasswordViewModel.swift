@@ -15,6 +15,17 @@ public final class SetNewPasswordViewModel {
     public var confirmPassword = ""
     public private(set) var isSubmitting = false
 
+    /// What went wrong, said under the field it belongs to.
+    ///
+    /// These used to be toasts. A toast on a password form appears behind the
+    /// keyboard, erases itself after four seconds, and takes the rule with it
+    /// — so the user reads half a sentence about a password they can no
+    /// longer see. At most one of the three is set at a time, which keeps
+    /// VoiceOver to a single announcement.
+    public private(set) var passwordError: String?
+    public private(set) var confirmError: String?
+    public private(set) var formError: String?
+
     private let identity: IdentityController
     private let toasts: ReloraToastCenter
 
@@ -56,13 +67,14 @@ public final class SetNewPasswordViewModel {
     /// control back to normal signed-in navigation on success.
     public func submit() async -> Bool {
         guard !isSubmitting else { return false }
+        clearErrors()
 
         if let validationError = Self.validate(password: password, confirmPassword: confirmPassword) {
             switch validationError {
-            case .weak(let failure):
-                toasts.showError(PasswordRule.title(for: failure), message: PasswordRule.hint)
+            case .weak:
+                passwordError = PasswordRule.hint
             case .mismatch:
-                toasts.showError("Passwords do not match", message: "Re-enter the same password in both fields.")
+                confirmError = "Both fields have to hold the same password."
             }
             return false
         }
@@ -72,15 +84,30 @@ public final class SetNewPasswordViewModel {
 
         do {
             try await identity.updatePassword(password)
+            // The one thing that still belongs in a toast: the sheet is
+            // closing, so there is no form left to put the message on.
             toasts.show("Password updated", message: "Your password has been changed.", variant: .success)
             identity.acknowledgePasswordRecovery()
             return true
         } catch {
-            // RN reports `error.message`; `localizedDescription` is the
-            // closest native equivalent to "whatever the auth backend said",
-            // not a re-derivation of RN's own message text.
-            toasts.showError("Could not update password", message: error.localizedDescription)
+            // Never `error.localizedDescription`. RN reported the backend's
+            // own message and so did this screen; `AuthErrorCopy` turns the
+            // same throw into a sentence written for the person reading it.
+            formError = AuthErrorCopy.forError(error, intent: .updatePassword).message
             return false
         }
+    }
+
+    /// Called when either field changes. An error that describes text the
+    /// user is already replacing is noise.
+    public func inputChanged() {
+        guard passwordError != nil || confirmError != nil || formError != nil else { return }
+        clearErrors()
+    }
+
+    private func clearErrors() {
+        passwordError = nil
+        confirmError = nil
+        formError = nil
     }
 }

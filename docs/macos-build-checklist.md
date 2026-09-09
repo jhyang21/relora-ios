@@ -417,6 +417,99 @@ for after the first green build.
    is internal (test-shaped visibility) but `ReloraDesignTests` has no
    test for it. Either add the test or tighten to `private` later.
 
+## 5g. 2.6.0 flags (auth redesign), highest risk first
+
+1. `ReloraFormField` / `ReloraSecureFormField` take focus as a
+   `FocusState<Field?>.Binding` stored property and compare
+   `focus.wrappedValue == field` for the focus ring. Check the generic
+   binding compiles under Swift 6 and that `.focused(focus, equals: field)`
+   accepts the non-optional `field` against an optional-valued binding.
+2. The reveal toggle swaps `SecureField` for `TextField` inside a `Group`
+   and re-asserts focus. Confirm the keyboard stays up, the caret does not
+   jump to the start of the string, and the field does not lose its text.
+3. `AccessibilityNotification.Announcement(message).post()` in
+   `ReloraInlineError.onAppear` — the M11 deferral. Verify with VoiceOver
+   that a failed submit is spoken once, not twice, and that it does not
+   collide with the field label.
+4. Password autofill: `.newPassword` in create mode must produce the iOS
+   strong-password sheet and the save-to-Keychain offer; `.password` in
+   sign-in mode must fill a saved credential. The old screen used
+   `.password` for both and got neither.
+5. `Text(.init(AuthCopy.legalDisclosure))` renders markdown links from a
+   runtime `String` through `LocalizedStringKey`. Confirm both links draw
+   tinted and open, and that the `accessibilityLabel` override is what
+   VoiceOver reads.
+6. `AuthErrorCopy` matches on lowercased error text, not on the SDK's error
+   enum (see the file's own reasoning). Once a device can produce real
+   failures, capture the actual strings for wrong password, taken address,
+   weak password and rate limiting, and reconcile `Signal`. An unmatched
+   error is safe — it falls back to the generic sentence — so this is a
+   quality pass, not a blocker.
+7. `AuthViewModelTests`' two in-flight tests use a bounded `Task.yield()`
+   loop (`waitUntil`) to observe the view model mid-call. If they fail on
+   CI rather than hang, look here first.
+8. `.scrollDismissesKeyboard(.interactively)` on both auth sheets — check
+   it does not fight the sheet's own drag-to-dismiss.
+9. `ReloraOrDivider` and `AuthErrorCopy.Intent.appleSignIn` were unused in
+   PR 1. Section 5h consumes both.
+
+**Smoke test once it runs:** create an account; create one on an address
+that already exists (expect the confirmation notice, see 5h) and tap
+"Already have an account? Sign in", confirming both fields survive; sign in with a wrong password and read the message; request a
+reset from an empty field and from a filled one; airplane-mode every
+submit; iPhone SE with the keyboard up; largest accessibility text size;
+dark mode; VoiceOver end to end.
+
+## 5h. 2.6.0 flags (Sign in with Apple), highest risk first
+
+Nothing in this section has been compiled. It is the first thing to read
+when the 2.6.0 build fails.
+
+Behaviour to expect, not a compile risk: `relora-prod` has email
+confirmation **on**. Creating an account shows the "Confirm your email"
+notice and opens no session until the link is tapped; signing in before
+that maps to the "Email not confirmed" sentence. A second sign-up for an
+address that already has an account shows the same notice with no mail
+behind it (Supabase obfuscates duplicates), so the "already has an
+account" copy should not appear on the live project.
+
+1. `client.signInWithIdToken(credentials: OpenIDConnectCredentials(provider:
+   .apple, idToken:, nonce:))` in `SupabaseAuthBackend`. Both the method
+   name and the credentials initializer are from memory of supabase-swift
+   2.x, and the provider enum may be `.apple` on a differently named type.
+   This is the single most likely line in the change to be wrong.
+2. `SignInWithAppleButton`'s two closures. `onRequest` is assumed to hand
+   over an `ASAuthorizationAppleIDRequest` and `onCompletion` a
+   `Result<ASAuthorization, Error>`. If the signature has moved, this is
+   where it shows.
+3. `ASAuthorizationError` is matched with `as?` and then `.code == .canceled`.
+   Confirm the cast succeeds for a real cancellation — the button may hand
+   back an `NSError` in the `ASAuthorizationError.errorDomain` instead, in
+   which case a cancelled sheet would draw an error message it should not.
+4. `AppleSignInController` is `@Observable` and held in `@State`. The
+   button's closures are not async, so `onCompletion` hops into a `Task`;
+   check the sheet still dismisses from inside it.
+5. `import Security` for `SecRandomCopyBytes` and `import CryptoKit` for
+   `SHA256`. Both are system frameworks and neither is in `Package.swift`,
+   because `ReloraFeatures` links them implicitly on iOS. If the linker
+   disagrees, add them to the target.
+6. `AppleSignInControllerTests` builds a request with
+   `ASAuthorizationAppleIDProvider().createRequest()` and a failure with
+   `ASAuthorizationError(.canceled)` / `(.failed)`. Both are assumed
+   constructible in a test target. If the test target fails to build, look
+   here before anything else — the file asserts nonce freshness and the
+   silent cancel, so fix it rather than deleting it.
+7. The entitlement. `Relora/Relora.entitlements` now carries
+   `com.apple.developer.applesignin`. CI builds unsigned, so CI stays green
+   whatever the portal says; the failure appears at the TestFlight
+   dispatch. See the gate in the milestone notes.
+
+**Smoke test once it runs:** sign in with Apple on a fresh install; again
+on a device holding guest notes, confirming the notes survive; cancel the
+Apple sheet halfway and confirm no error appears; airplane mode during the
+Apple call; the button in both modes and in dark mode; VoiceOver over the
+button and the divider.
+
 ## 6. Behavior spot-checks once it runs
 
 - Voice-less smoke test: add a contact, edit, delete with Undo, search,

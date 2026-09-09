@@ -46,45 +46,60 @@ public struct SetNewPasswordView: View {
                         .reloraBorder(ReloraColor.danger.opacity(0.4), radius: ReloraRadius.md)
                     }
 
-                    VStack(alignment: .leading, spacing: ReloraSpacing.sm) {
-                        SecureField("New password", text: $viewModel.password)
-                            .textContentType(.newPassword)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(ReloraSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: ReloraRadius.sm, style: .continuous)
-                                    .fill(ReloraColor.background)
-                            )
-                            .reloraBorder(radius: ReloraRadius.sm)
-                            .focused($focusedField, equals: .password)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .confirmPassword }
+                    VStack(alignment: .leading, spacing: ReloraSpacing.md) {
+                        // `fill: background` rather than the component's
+                        // default `card`: this form sits inside a card, and a
+                        // white field on a white card is not a field.
+                        ReloraSecureFormField(
+                            "New password",
+                            text: $viewModel.password,
+                            focus: $focusedField,
+                            equals: .password,
+                            error: viewModel.passwordError,
+                            fill: ReloraColor.background,
+                            contentType: .newPassword,
+                            submitLabel: .next,
+                            onSubmit: { focusedField = .confirmPassword }
+                        )
 
-                        SecureField("Confirm new password", text: $viewModel.confirmPassword)
-                            .textContentType(.newPassword)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(ReloraSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: ReloraRadius.sm, style: .continuous)
-                                    .fill(ReloraColor.background)
-                            )
-                            .reloraBorder(radius: ReloraRadius.sm)
-                            .focused($focusedField, equals: .confirmPassword)
-                            .submitLabel(.done)
-                            .onSubmit { handleSubmit() }
+                        ReloraSecureFormField(
+                            "Confirm new password",
+                            text: $viewModel.confirmPassword,
+                            focus: $focusedField,
+                            equals: .confirmPassword,
+                            error: viewModel.confirmError,
+                            fill: ReloraColor.background,
+                            contentType: .newPassword,
+                            submitLabel: .done,
+                            onSubmit: { handleSubmit() }
+                        )
 
-                        Text(PasswordRule.hint)
-                            .font(ReloraFont.footnote)
-                            .foregroundStyle(ReloraColor.mutedInk)
+                        if viewModel.passwordError == nil {
+                            Text(PasswordRule.hint)
+                                .font(ReloraFont.footnote)
+                                .foregroundStyle(ReloraColor.mutedInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
-                        Button(viewModel.isSubmitting ? "Saving..." : "Save password") {
+                        if let formError = viewModel.formError {
+                            ReloraInlineError(formError)
+                        }
+
+                        Button {
                             handleSubmit()
+                        } label: {
+                            ZStack {
+                                Text("Save password")
+                                    .opacity(viewModel.isSubmitting ? 0 : 1)
+                                if viewModel.isSubmitting {
+                                    ProgressView()
+                                        .tint(ReloraColor.onAccent)
+                                }
+                            }
                         }
                         .buttonStyle(.reloraPrimary)
                         .disabled(viewModel.isSubmitting)
-                        .accessibilityLabel("Save password")
+                        .accessibilityLabel(viewModel.isSubmitting ? "Saving password" : "Save password")
                     }
                     .padding(ReloraSpacing.lg)
                     // `reloraSurface` rather than a drawn rectangle and a
@@ -97,6 +112,7 @@ public struct SetNewPasswordView: View {
                 .padding(.vertical, ReloraSpacing.lg)
                 .frame(maxWidth: ReloraLayout.contentMaxWidth)
             }
+            .scrollDismissesKeyboard(.interactively)
             .frame(maxWidth: .infinity)
             .background(ReloraColor.background)
             .navigationBarTitleDisplayMode(.inline)
@@ -112,6 +128,8 @@ public struct SetNewPasswordView: View {
             }
         }
         .onDisappear { viewModel.handleDisappear() }
+        .onChange(of: viewModel.password) { _, _ in viewModel.inputChanged() }
+        .onChange(of: viewModel.confirmPassword) { _, _ in viewModel.inputChanged() }
     }
 
     private func handleSubmit() {

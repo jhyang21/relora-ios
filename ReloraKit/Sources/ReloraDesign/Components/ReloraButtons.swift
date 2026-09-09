@@ -64,3 +64,31 @@ public extension ButtonStyle where Self == ReloraPrimaryButtonStyle {
 public extension ButtonStyle where Self == ReloraSecondaryButtonStyle {
     static var reloraSecondary: ReloraSecondaryButtonStyle { ReloraSecondaryButtonStyle() }
 }
+
+/// The link-weight action — "Forgot password?", "Sign in instead", anything
+/// that is a way out of the current screen rather than a step through it.
+///
+/// No fill and no border, so it never competes with the primary button it sits
+/// under. The 44pt minimum height and the `contentShape` are the whole reason
+/// this is a style and not a bare `Button`: three screens open-coded that pair
+/// before this existed, and two of them got the tap target wrong.
+public struct ReloraTertiaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(ReloraFont.footnote)
+            .foregroundStyle(ReloraColor.accentText)
+            .padding(.horizontal, ReloraSpacing.sm)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.5)
+            .reloraAnimation(.quick, value: configuration.isPressed)
+    }
+}
+
+public extension ButtonStyle where Self == ReloraTertiaryButtonStyle {
+    static var reloraTertiary: ReloraTertiaryButtonStyle { ReloraTertiaryButtonStyle() }
+}

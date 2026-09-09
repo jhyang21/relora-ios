@@ -806,3 +806,145 @@ variable font live in `Relora/Fonts/`; `UIAppFonts` is declared in
 `Info.plist`. PostScript names match `Typography.swift`'s
 `Font.custom` names exactly (`DMSans-SemiBold` included — the static
 upstream exports lack it, which is why the faces are instanced).
+
+## 2.6.0 — Create Account / Sign In redesign (PR 1 of 2)
+
+`Billing/AuthGateView.swift` is deleted. The screen now lives in
+`ReloraFeatures/Auth/` as four files — `AuthGateContext` (the types, moved
+verbatim plus `AuthMode` and `initialMode`), `AuthCopy`, `AuthViewModel`
+and `AuthView`. Auth was never a billing feature; it was in `Billing/`
+because the paywall happened to be the first caller.
+
+**The problem.** One form carried two live submit buttons, "Create
+account" filled and "Sign in" outlined. Nothing said which belonged to the
+person looking at it, so a returning user's action was the quieter button
+and a mistap made a second account. Every failure arrived as
+`error.localizedDescription` from supabase-swift, in a toast that erases
+itself after four seconds from behind the keyboard.
+
+**What changed**
+
+- **One mode at a time.** The caller states it
+  (`AuthGateContext.initialMode`, derived from action and source), the
+  headline says it, and one primary button acts on it. The other mode is a
+  link under the form that keeps whatever has been typed — the recovery
+  path for the commonest failure on the screen.
+- **`AuthGateSource.onboarding`** exists now, so `GetStartedStep` no longer
+  borrows `.settings` and gets "Welcome back" for somebody who has never
+  had an account. Its button reads "Create account", not
+  "Create account / Sign in".
+- **Errors are inline and stay put** (`ReloraInlineError`), under the field
+  they belong to, until the input changes. `ReloraServices/AuthErrorCopy.swift`
+  maps a throw to a sentence and, where one exists, an offer: a taken
+  address offers the switch to sign in; a wrong password offers the reset.
+  No auth failure reaches a toast any more. `SetNewPasswordView` was
+  changed the same way.
+- **Email is trimmed on every call that sends one.** It used to be trimmed
+  on reset and nowhere else. `ReloraServices/EmailAddress.swift` also
+  shape-checks it before the round trip, and deliberately never lowercases
+  or strips plus-tags.
+- **Focus chains, the return key submits**, the keyboard dismisses on
+  scroll, the password reveals, and sign-up uses `.newPassword` so iOS
+  offers the strong-password generator and the Keychain save that
+  `.password` suppressed.
+- **Forgot password uses the address already in the field** instead of
+  refusing and asking for it.
+- **Terms and Privacy** appear in create mode, linking the same URLs
+  Settings already uses (`SettingsLegal`). No checkbox, nothing
+  pre-consented, no security claims.
+- **New in `ReloraDesign`:** `ReloraFormField` / `ReloraSecureFormField`
+  (label above the field, focus ring, error border, reveal),
+  `ReloraInlineError`, `ReloraOrDivider`, `ReloraTertiaryButtonStyle`. The
+  package had no shared text field at all, which is why the two auth
+  screens styled theirs differently.
+
+**Expo parity is broken on purpose** (Andrew's call, this session). Android
+keeps `AuthGateScreen.tsx` as it stands. Reconciling later means porting:
+the mode split, the inline error mapping, email trimming, the onboarding
+source, and the create-mode legal line.
+
+**The one enumeration tradeoff.** Sign-up is written to tell the user an
+address is already taken and offer the switch to sign in, because the
+alternative is the dead end this redesign exists to remove. But
+`relora-prod` has email confirmation **on** (`enable_confirmations =
+true` in the monorepo's `supabase/config.toml`, confirmed against the
+project on 2026-09-09), and with confirmation on Supabase answers a
+duplicate sign-up with an obfuscated success and no session: a second
+sign-up for a taken address shows the confirmation notice and no mail
+arrives. The "already has an account" copy only fires if confirmation is
+ever turned off. The notice's "use a different email" line and the
+"Already have an account? Sign in" switch are the way out.
+Password reset says nothing either way, and `AuthErrorCopy` collapses
+every reset failure but rate-limiting to a generic sentence so it cannot
+become an account-existence oracle. Tested
+(`AuthErrorCopyTests.passwordResetLeaksNothing`).
+
+**Deliberately not built**
+
+- **No resend-confirmation.** The notice gained a "use a different email"
+  way out but not a resend: `AuthBackend` has no resend method and the
+  SDK call cannot be verified here. The branch is reachable on
+  `relora-prod`, so this is the first follow-up once a build proves the
+  rest of the flow.
+- **No analytics, no localization.** Same reasons as M9 and M11: neither
+  layer exists, and adding one for a single screen implies the other forty
+  have it.
+- The pending-auth-intent gap M9 and M10 both recorded is still open.
+
+## 2.6.0 — Sign in with Apple (PR 2 of 2)
+
+**Why.** The redesign above fixed how the account screen reads. It did not
+change how much typing it asks for. Sign in with Apple removes the
+password from both paths: a new user gets an account without choosing one,
+a returning user gets in without recalling one, and neither hands Relora a
+credential it then has to look after.
+
+**What changed**
+
+- `Relora/Relora.entitlements` carries `com.apple.developer.applesignin`.
+  `project.yml` already pointed `CODE_SIGN_ENTITLEMENTS` at that file, so
+  XcodeGen needed no edit.
+- `AuthBackend` gains `signInWithApple(idToken:nonce:)`.
+  `SupabaseAuthBackend` implements it through the SDK's OpenID Connect
+  id-token sign-in; `UnconfiguredAuthBackend` throws the same
+  `BACKEND_NOT_CONFIGURED` error as every other call; the three test fakes
+  gain the method.
+- `IdentityController.signInWithApple(idToken:nonce:)` is the same three
+  lines as `signIn`, and routes through `hydrate` for the same reason: it
+  is what migrates a guest's local notes onto the new account id.
+  `IdentityControllerTests` asserts both the migration and the raw-nonce
+  pass-through.
+- `Auth/AppleSignInController.swift` mints a fresh nonce per attempt from
+  `SecRandomCopyBytes`, sends Apple its SHA-256 and Supabase the raw
+  string. A cancelled sheet closes silently. A generator failure leaves the
+  nonce unset and the attempt fails, rather than falling back to a weaker
+  source.
+- `AuthView` draws `SignInWithAppleButton` above a `ReloraOrDivider` and
+  the email form, `.signUp` in create mode and `.signIn` in sign-in mode,
+  black on light and white on dark.
+- **The legal line moved to both modes** and now reads "By continuing".
+  Apple sign-in opens an account for an Apple ID the project has not seen
+  before whichever mode the screen is in, so wording it as sign-up only
+  would have created an account with nothing on screen saying so.
+
+**Scopes.** The request asks for `.email` and nothing else. Relora stores
+no name, and Apple only returns one on first authorisation anyway.
+
+**Gate, done 2026-09-09.** CI builds unsigned, so it stays green whatever
+the portal holds; a *signed* archive needed three things first:
+
+1. The Sign in with Apple capability on App ID `com.immform.relora`. Added
+   through the App Store Connect API (`bundleIdCapabilities`,
+   `APPLE_ID_AUTH`), which also marks the existing App Store profile
+   invalid.
+2. Apple enabled as a Supabase provider with the bundle id as its client
+   id. Done by adding `[auth.external.apple]` to the monorepo's
+   `supabase/config.toml` and pushing it with `supabase config push`, so
+   the dashboard is never the source of truth.
+3. A fresh AppStore profile. The beta lane runs match with `readonly:
+   false`, and match deletes an invalid portal profile and mints a new
+   one, so the first 2.6.0 TestFlight run repairs it.
+
+**Still not built.** No Google, no magic link, no passkeys. Apple is the
+only provider, and it is new, so no existing account is stranded behind
+it.

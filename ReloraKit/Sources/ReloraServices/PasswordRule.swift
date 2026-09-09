@@ -1,7 +1,7 @@
 import Foundation
 
 /// The one password rule this app applies, so the two places that ask for
-/// a password — sign-up (`AuthGateView`) and set-new-password
+/// a password — sign-up (`AuthView`) and set-new-password
 /// (`SetNewPasswordViewModel`) — cannot drift apart or from the server.
 ///
 /// The server rejects anything weaker with an error the user reads after
@@ -33,13 +33,5 @@ public enum PasswordRule {
         guard password.contains(where: { $0.isASCII && $0.isLowercase }) else { return .missingLowercase }
         guard password.contains(where: { $0.isASCII && $0.isNumber }) else { return .missingDigit }
         return nil
-    }
-
-    /// The toast title for a rejection. The body is always `hint`.
-    public static func title(for failure: Failure) -> String {
-        switch failure {
-        case .tooShort: return "Password too short"
-        case .missingUppercase, .missingLowercase, .missingDigit: return "Password too simple"
-        }
     }
 }
