@@ -454,8 +454,8 @@ for after the first green build.
    PR 1. Section 5h consumes both.
 
 **Smoke test once it runs:** create an account; create one on an address
-that already exists and take the offered switch, confirming both fields
-survive; sign in with a wrong password and read the message; request a
+that already exists (expect the confirmation notice, see 5h) and tap
+"Already have an account? Sign in", confirming both fields survive; sign in with a wrong password and read the message; request a
 reset from an empty field and from a filled one; airplane-mode every
 submit; iPhone SE with the keyboard up; largest accessibility text size;
 dark mode; VoiceOver end to end.
