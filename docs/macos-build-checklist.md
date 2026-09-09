@@ -465,6 +465,15 @@ dark mode; VoiceOver end to end.
 Nothing in this section has been compiled. It is the first thing to read
 when the 2.6.0 build fails.
 
+Behaviour to expect, not a compile risk: `relora-prod` has email
+confirmation **on**. Creating an account shows the "Confirm your email"
+notice and opens no session until the link is tapped; signing in before
+that maps to the "Email not confirmed" sentence. A second sign-up for an
+address that already has an account shows the same notice with no mail
+behind it (Supabase obfuscates duplicates when confirmation is on), so the
+"already has an account" copy is not expected to appear on the live
+project.
+
 1. `client.signInWithIdToken(credentials: OpenIDConnectCredentials(provider:
    .apple, idToken:, nonce:))` in `SupabaseAuthBackend`. Both the method
    name and the credentials initializer are from memory of supabase-swift

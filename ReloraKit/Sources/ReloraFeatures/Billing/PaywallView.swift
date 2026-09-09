@@ -145,7 +145,7 @@ public struct PaywallView: View {
                         Button {
                             pendingAuthGate = .signIn
                         } label: {
-                            Text("Create account or sign in with email and password")
+                            Text("Create account or sign in")
                                 .font(ReloraFont.footnote)
                                 .frame(minHeight: 44)
                                 .contentShape(Rectangle())

@@ -863,9 +863,17 @@ keeps `AuthGateScreen.tsx` as it stands. Reconciling later means porting:
 the mode split, the inline error mapping, email trimming, the onboarding
 source, and the create-mode legal line.
 
-**The one enumeration tradeoff.** Sign-up tells the user an address is
-already taken, because Supabase returns that with email confirmation off
-and the alternative is the dead end this redesign exists to remove.
+**The one enumeration tradeoff, and a correction.** Sign-up is written to
+tell the user an address is already taken and offer the switch to sign in,
+because the alternative is the dead end this redesign exists to remove.
+But `relora-prod` has email confirmation **on** (`enable_confirmations =
+true` in the monorepo's `supabase/config.toml`, confirmed against the
+project on 2026-09-09), and with confirmation on Supabase answers a
+duplicate sign-up with an obfuscated success and no session. So on the
+live project a second sign-up for a taken address shows the confirmation
+notice and no mail arrives; the "already has an account" copy only fires
+if confirmation is ever turned off. The notice's "use a different email"
+line and the "Already have an account? Sign in" switch are the way out.
 Password reset says nothing either way, and `AuthErrorCopy` collapses
 every reset failure but rate-limiting to a generic sentence so it cannot
 become an account-existence oracle. Tested
@@ -874,10 +882,10 @@ become an account-existence oracle. Tested
 **Deliberately not built**
 
 - **No resend-confirmation.** The notice gained a "use a different email"
-  way out but not a resend: `AuthBackend` has no resend method, the branch
-  is unreachable while confirmation is off on the project, and adding an
-  unverifiable SDK call for dead code is a bad trade. Revisit when
-  confirmation is turned on.
+  way out but not a resend: `AuthBackend` has no resend method and the
+  SDK call cannot be verified here. The branch *is* reachable (see the
+  correction above), so this is the first follow-up once a build proves
+  the rest of the flow.
 - **No analytics, no localization.** Same reasons as M9 and M11: neither
   layer exists, and adding one for a single screen implies the other forty
   have it.
@@ -922,15 +930,20 @@ credential it then has to look after.
 **Scopes.** The request asks for `.email` and nothing else. Relora stores
 no name, and Apple only returns one on first authorisation anyway.
 
-**Gate before dispatching 2.6.0.** CI builds unsigned, so it stays green
-whatever the portal holds. A *signed* archive fails until all three of
-these are done:
+**Gate, done 2026-09-09.** CI builds unsigned, so it stays green whatever
+the portal holds; a *signed* archive needed three things first:
 
-1. Add the Sign in with Apple capability to App ID `com.immform.relora` in
-   the Apple developer portal.
-2. Enable Apple as a provider in the Supabase dashboard, with the bundle
-   id as the client id.
-3. Let fastlane match mint a fresh AppStore profile.
+1. The Sign in with Apple capability on App ID `com.immform.relora`. Added
+   through the App Store Connect API (`bundleIdCapabilities`,
+   `APPLE_ID_AUTH`), which also marks the existing App Store profile
+   invalid.
+2. Apple enabled as a Supabase provider with the bundle id as its client
+   id. Done by adding `[auth.external.apple]` to the monorepo's
+   `supabase/config.toml` and pushing it with `supabase config push`, so
+   the dashboard is never the source of truth.
+3. A fresh AppStore profile. The beta lane runs match with `readonly:
+   false`, and match deletes an invalid portal profile and mints a new one
+   on its own, so the first 2.6.0 TestFlight run repairs it.
 
 **Still not built.** No Google, no magic link, no passkeys. Apple is the
 only provider, and it is new, so no existing account is stranded behind
