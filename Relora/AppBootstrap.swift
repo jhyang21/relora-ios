@@ -375,6 +375,7 @@ struct UnconfiguredAuthBackend: AuthBackend {
     func signInAnonymously() async throws -> AuthSession { throw unavailable }
     func signUp(email: String, password: String) async throws -> AuthSession? { throw unavailable }
     func signIn(email: String, password: String) async throws -> AuthSession { throw unavailable }
+    func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession { throw unavailable }
     func signOut() async throws {}
     func resetPassword(email: String, redirectTo: URL?) async throws { throw unavailable }
     func updatePassword(_ newPassword: String) async throws { throw unavailable }

@@ -110,21 +110,27 @@ enum AuthCopy {
 
     // MARK: Disclosure
 
-    /// Shown in create mode only, and worded as a statement of fact rather
-    /// than a checkbox. Nothing here is pre-consented, nothing subscribes the
-    /// user to anything, and no claim is made about how secure the service is.
-    /// Markdown, so `Text` renders both links itself. The URLs are the ones
-    /// Settings already links to (`SettingsLegal`), not new ones invented for
-    /// this screen — one set of legal pages, one source for them.
+    /// Worded as a statement of fact rather than a checkbox. Nothing here is
+    /// pre-consented, nothing subscribes the user to anything, and no claim is
+    /// made about how secure the service is. Markdown, so `Text` renders both
+    /// links itself. The URLs are the ones Settings already links to
+    /// (`SettingsLegal`), not new ones invented for this screen — one set of
+    /// legal pages, one source for them.
+    ///
+    /// It says "continuing" and it shows in both modes, because Sign in with
+    /// Apple opens an account for an Apple ID the project has not seen before
+    /// whichever mode the screen is in. Wording it as sign-up only, and hiding
+    /// it while somebody signs in, would leave that account created with
+    /// nothing on screen having said so.
     static let legalDisclosure = """
-        By creating an account you agree to our \
+        By continuing you agree to our \
         [Terms of Use](\(SettingsLegal.termsOfUseURL.absoluteString)) and \
         [Privacy Policy](\(SettingsLegal.privacyPolicyURL.absoluteString)).
         """
 
     /// What a screen reader hears instead. The markdown link syntax reads as
     /// punctuation, and the two labels are already reachable as links.
-    static let legalDisclosureSpoken = "By creating an account you agree to our Terms of Use and Privacy Policy."
+    static let legalDisclosureSpoken = "By continuing you agree to our Terms of Use and Privacy Policy."
 
     // MARK: Footer
 

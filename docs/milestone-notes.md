@@ -856,8 +856,7 @@ itself after four seconds from behind the keyboard.
   (label above the field, focus ring, error border, reveal),
   `ReloraInlineError`, `ReloraOrDivider`, `ReloraTertiaryButtonStyle`. The
   package had no shared text field at all, which is why the two auth
-  screens styled theirs differently. `ReloraOrDivider` is unused until the
-  Sign in with Apple PR lands above it.
+  screens styled theirs differently.
 
 **Expo parity is broken on purpose** (Andrew's call, this session). Android
 keeps `AuthGateScreen.tsx` as it stands. Reconciling later means porting:
@@ -882,6 +881,57 @@ become an account-existence oracle. Tested
 - **No analytics, no localization.** Same reasons as M9 and M11: neither
   layer exists, and adding one for a single screen implies the other forty
   have it.
-- **Sign in with Apple is PR 2**, because the entitlement breaks signed
-  archives until the App ID carries the capability.
 - The pending-auth-intent gap M9 and M10 both recorded is still open.
+
+## 2.6.0 — Sign in with Apple (PR 2 of 2)
+
+**Why.** The redesign above fixed how the account screen reads. It did not
+change how much typing it asks for. Sign in with Apple removes the
+password from both paths: a new user gets an account without choosing one,
+a returning user gets in without recalling one, and neither hands Relora a
+credential it then has to look after.
+
+**What changed**
+
+- `Relora/Relora.entitlements` carries `com.apple.developer.applesignin`.
+  `project.yml` already pointed `CODE_SIGN_ENTITLEMENTS` at that file, so
+  XcodeGen needed no edit.
+- `AuthBackend` gains `signInWithApple(idToken:nonce:)`.
+  `SupabaseAuthBackend` implements it through the SDK's OpenID Connect
+  id-token sign-in; `UnconfiguredAuthBackend` throws the same
+  `BACKEND_NOT_CONFIGURED` error as every other call; the three test fakes
+  gain the method.
+- `IdentityController.signInWithApple(idToken:nonce:)` is the same three
+  lines as `signIn`, and routes through `hydrate` for the same reason: it
+  is what migrates a guest's local notes onto the new account id.
+  `IdentityControllerTests` asserts both the migration and the raw-nonce
+  pass-through.
+- `Auth/AppleSignInController.swift` mints a fresh nonce per attempt from
+  `SecRandomCopyBytes`, sends Apple its SHA-256 and Supabase the raw
+  string. A cancelled sheet closes silently. A generator failure leaves the
+  nonce unset and the attempt fails, rather than falling back to a weaker
+  source.
+- `AuthView` draws `SignInWithAppleButton` above a `ReloraOrDivider` and
+  the email form, `.signUp` in create mode and `.signIn` in sign-in mode,
+  black on light and white on dark.
+- **The legal line moved to both modes** and now reads "By continuing".
+  Apple sign-in opens an account for an Apple ID the project has not seen
+  before whichever mode the screen is in, so wording it as sign-up only
+  would have created an account with nothing on screen saying so.
+
+**Scopes.** The request asks for `.email` and nothing else. Relora stores
+no name, and Apple only returns one on first authorisation anyway.
+
+**Gate before dispatching 2.6.0.** CI builds unsigned, so it stays green
+whatever the portal holds. A *signed* archive fails until all three of
+these are done:
+
+1. Add the Sign in with Apple capability to App ID `com.immform.relora` in
+   the Apple developer portal.
+2. Enable Apple as a provider in the Supabase dashboard, with the bundle
+   id as the client id.
+3. Let fastlane match mint a fresh AppStore profile.
+
+**Still not built.** No Google, no magic link, no passkeys. Apple is the
+only provider, and it is new, so no existing account is stranded behind
+it.

@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 import ReloraDesign
 import ReloraServices
@@ -18,12 +19,15 @@ import ReloraServices
 /// reading it.
 public struct AuthView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var viewModel: AuthViewModel
+    @State private var apple: AppleSignInController
     @FocusState private var focus: AuthViewModel.Field?
 
     public init(context: AuthGateContext, identity: IdentityController) {
         _viewModel = State(initialValue: AuthViewModel(context: context, identity: identity))
+        _apple = State(initialValue: AppleSignInController(identity: identity))
     }
 
     public var body: some View {
@@ -35,6 +39,8 @@ public struct AuthView: View {
                     if let notice = viewModel.notice {
                         noticeCard(notice)
                     }
+
+                    appleSection
 
                     form
 
@@ -61,9 +67,21 @@ public struct AuthView: View {
             focus = requested
             viewModel.clearFocusRequest()
         }
-        .onChange(of: viewModel.email) { _, _ in viewModel.inputChanged() }
-        .onChange(of: viewModel.password) { _, _ in viewModel.inputChanged() }
+        .onChange(of: viewModel.email) { _, _ in
+            viewModel.inputChanged()
+            apple.clearError()
+        }
+        .onChange(of: viewModel.password) { _, _ in
+            viewModel.inputChanged()
+            apple.clearError()
+        }
+        .onChange(of: viewModel.mode) { _, _ in apple.clearError() }
     }
+
+    /// True while either road is in flight. The two open the same session, so
+    /// letting one start while the other is running races two sign-ins at the
+    /// same account.
+    private var isBusy: Bool { viewModel.isBusy || apple.isSigningIn }
 
     // MARK: Header
 
@@ -82,6 +100,45 @@ public struct AuthView: View {
         // re-read whenever the mode changes rather than changing silently
         // under a screen reader.
         .id(viewModel.mode)
+    }
+
+    // MARK: Sign in with Apple
+
+    /// Above the form, because it is the shorter road. A person who has an
+    /// Apple ID and no Relora account gets an account without choosing a
+    /// password, and a returning one gets in without remembering it.
+    private var appleSection: some View {
+        VStack(alignment: .leading, spacing: ReloraSpacing.md) {
+            SignInWithAppleButton(
+                // Apple's own label for the two cases. The button says the
+                // same thing the headline and the submit button say, so the
+                // screen never reads as two different tasks at once.
+                viewModel.mode == .createAccount ? .signUp : .signIn,
+                onRequest: { request in
+                    focus = nil
+                    apple.prepare(request)
+                },
+                onCompletion: { result in
+                    Task {
+                        if await apple.complete(result) {
+                            dismiss()
+                        }
+                    }
+                }
+            )
+            // Apple's guidance: the dark button on a light ground and the
+            // white one on a dark ground, so it keeps its own contrast in
+            // both themes rather than borrowing the app's.
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+            .frame(height: 52)
+            .disabled(isBusy)
+
+            if let error = apple.error {
+                ReloraInlineError(error.message)
+            }
+
+            ReloraOrDivider()
+        }
     }
 
     // MARK: Form
@@ -133,7 +190,7 @@ public struct AuthView: View {
                             Task { await viewModel.applyRecovery(recovery) }
                         }
                         .buttonStyle(.reloraTertiary)
-                        .disabled(viewModel.isBusy)
+                        .disabled(isBusy)
                     }
                 }
             }
@@ -145,14 +202,12 @@ public struct AuthView: View {
                     Task { await viewModel.sendPasswordReset() }
                 }
                 .buttonStyle(.reloraTertiary)
-                .disabled(viewModel.isBusy)
+                .disabled(isBusy)
                 .accessibilityLabel("Forgot password")
                 .frame(maxWidth: .infinity)
             }
 
-            if viewModel.mode == .createAccount {
-                legalDisclosure
-            }
+            legalDisclosure
         }
     }
 
@@ -174,7 +229,7 @@ public struct AuthView: View {
             }
         }
         .buttonStyle(.reloraPrimary)
-        .disabled(viewModel.isBusy)
+        .disabled(isBusy)
         .accessibilityLabel(
             viewModel.isSubmitting
                 ? AuthCopy.primaryButtonInProgress(mode: viewModel.mode)
@@ -216,7 +271,7 @@ public struct AuthView: View {
                 viewModel.switchMode()
             }
             .buttonStyle(.reloraTertiary)
-            .disabled(viewModel.isBusy)
+            .disabled(isBusy)
         }
         .frame(maxWidth: .infinity)
     }

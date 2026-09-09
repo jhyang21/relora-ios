@@ -87,6 +87,11 @@ private final class ScriptedAuthBackend: AuthBackend, @unchecked Sendable {
         return try lock.withLock { _signInResult }.get()
     }
 
+    /// No `AuthViewModel` path reaches this: `AuthView` owns
+    /// `AppleSignInController` and calls `IdentityController` itself. Here to
+    /// conform, nothing more.
+    func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession { .stub }
+
     func signOut() async throws {}
 
     func resetPassword(email: String, redirectTo: URL?) async throws {
@@ -97,23 +102,6 @@ private final class ScriptedAuthBackend: AuthBackend, @unchecked Sendable {
 
     func updatePassword(_ newPassword: String) async throws {}
     func sessionFromURL(_ url: URL) async throws -> AuthSession { throw FakeAuthError(text: "unsupported") }
-}
-
-private final class NoOpOwnershipMigration: OwnershipMigrating, @unchecked Sendable {
-    func hasPending() throws -> Bool { false }
-    func runMigration(fromUserID: String, toUserID: String, source: String) async -> OwnershipMigrationOutcome { .skipped }
-    func resumePendingMigrationIfAny(
-        currentIdentity: Identity,
-        source: String
-    ) async -> (outcome: OwnershipMigrationOutcome, fromUserID: String?, toUserID: String?) {
-        (.skipped, nil, nil)
-    }
-    func clearAllLocalData() throws {}
-}
-
-private final class NoOpLocalGuestIDStore: LocalGuestIDStore, @unchecked Sendable {
-    func read() throws -> String? { nil }
-    func write(_ userID: String?) throws {}
 }
 
 @MainActor

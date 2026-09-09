@@ -320,6 +320,14 @@ public protocol AuthBackend: Sendable {
     func signUp(email: String, password: String) async throws -> AuthSession?
     /// Mirrors `supabase.auth.signInWithPassword({ email, password })`.
     func signIn(email: String, password: String) async throws -> AuthSession
+    /// Exchanges an Apple identity token for a Supabase session. Mirrors
+    /// `supabase.auth.signInWithIdToken({ provider: .apple, ... })`.
+    ///
+    /// `nonce` is the raw string whose SHA-256 went to Apple in the
+    /// authorization request. Supabase hashes it again and compares, which
+    /// is what stops an identity token captured elsewhere being replayed
+    /// against this project. Never pass the hash.
+    func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession
     /// Mirrors `supabase.auth.signOut()`.
     func signOut() async throws
     /// Mirrors `supabase.auth.resetPasswordForEmail(email, { redirectTo })`.
