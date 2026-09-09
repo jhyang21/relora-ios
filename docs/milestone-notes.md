@@ -863,17 +863,17 @@ keeps `AuthGateScreen.tsx` as it stands. Reconciling later means porting:
 the mode split, the inline error mapping, email trimming, the onboarding
 source, and the create-mode legal line.
 
-**The one enumeration tradeoff, and a correction.** Sign-up is written to
-tell the user an address is already taken and offer the switch to sign in,
-because the alternative is the dead end this redesign exists to remove.
-But `relora-prod` has email confirmation **on** (`enable_confirmations =
+**The one enumeration tradeoff.** Sign-up is written to tell the user an
+address is already taken and offer the switch to sign in, because the
+alternative is the dead end this redesign exists to remove. But
+`relora-prod` has email confirmation **on** (`enable_confirmations =
 true` in the monorepo's `supabase/config.toml`, confirmed against the
 project on 2026-09-09), and with confirmation on Supabase answers a
-duplicate sign-up with an obfuscated success and no session. So on the
-live project a second sign-up for a taken address shows the confirmation
-notice and no mail arrives; the "already has an account" copy only fires
-if confirmation is ever turned off. The notice's "use a different email"
-line and the "Already have an account? Sign in" switch are the way out.
+duplicate sign-up with an obfuscated success and no session: a second
+sign-up for a taken address shows the confirmation notice and no mail
+arrives. The "already has an account" copy only fires if confirmation is
+ever turned off. The notice's "use a different email" line and the
+"Already have an account? Sign in" switch are the way out.
 Password reset says nothing either way, and `AuthErrorCopy` collapses
 every reset failure but rate-limiting to a generic sentence so it cannot
 become an account-existence oracle. Tested
@@ -883,9 +883,9 @@ become an account-existence oracle. Tested
 
 - **No resend-confirmation.** The notice gained a "use a different email"
   way out but not a resend: `AuthBackend` has no resend method and the
-  SDK call cannot be verified here. The branch *is* reachable (see the
-  correction above), so this is the first follow-up once a build proves
-  the rest of the flow.
+  SDK call cannot be verified here. The branch is reachable on
+  `relora-prod`, so this is the first follow-up once a build proves the
+  rest of the flow.
 - **No analytics, no localization.** Same reasons as M9 and M11: neither
   layer exists, and adding one for a single screen implies the other forty
   have it.
@@ -942,8 +942,8 @@ the portal holds; a *signed* archive needed three things first:
    `supabase/config.toml` and pushing it with `supabase config push`, so
    the dashboard is never the source of truth.
 3. A fresh AppStore profile. The beta lane runs match with `readonly:
-   false`, and match deletes an invalid portal profile and mints a new one
-   on its own, so the first 2.6.0 TestFlight run repairs it.
+   false`, and match deletes an invalid portal profile and mints a new
+   one, so the first 2.6.0 TestFlight run repairs it.
 
 **Still not built.** No Google, no magic link, no passkeys. Apple is the
 only provider, and it is new, so no existing account is stranded behind

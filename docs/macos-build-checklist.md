@@ -470,9 +470,8 @@ confirmation **on**. Creating an account shows the "Confirm your email"
 notice and opens no session until the link is tapped; signing in before
 that maps to the "Email not confirmed" sentence. A second sign-up for an
 address that already has an account shows the same notice with no mail
-behind it (Supabase obfuscates duplicates when confirmation is on), so the
-"already has an account" copy is not expected to appear on the live
-project.
+behind it (Supabase obfuscates duplicates), so the "already has an
+account" copy should not appear on the live project.
 
 1. `client.signInWithIdToken(credentials: OpenIDConnectCredentials(provider:
    .apple, idToken:, nonce:))` in `SupabaseAuthBackend`. Both the method
