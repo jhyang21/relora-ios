@@ -53,6 +53,17 @@ public protocol PurchasesProviding: Sendable {
     /// Mirrors `Purchases.shared.restorePurchases()`, called by
     /// `restorePurchaseSnapshot`.
     func restorePurchases() async throws -> PurchasesCustomerInfo
+
+    /// Whether this Apple ID may still take each product's introductory
+    /// offer. The paywall needs this separately from `products`: a product
+    /// carries its offer whether or not this buyer can have it, and copy
+    /// promising "7 days free" to someone StoreKit will charge immediately
+    /// is exactly what App Review 3.1.2 rejects.
+    ///
+    /// Never throws — an id StoreKit cannot answer for comes back
+    /// `.unknown`, which the paywall treats as eligible rather than
+    /// hiding an offer the buyer probably has.
+    func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility]
 }
 
 // MARK: - Value types
@@ -62,14 +73,84 @@ public protocol PurchasesProviding: Sendable {
 /// `PurchaseCatalog` entry (`priceString`, used verbatim; `paywallContent.ts`
 /// supplies the marketing title/bullets separately, so no title beyond the
 /// storefront's own is carried here).
+///
+/// `subscriptionPeriod` and `introductoryOffer` carry what the paywall
+/// needs to write its own period and trial wording instead of hardcoding
+/// "/month" and "7 days free" — see `PaywallPricing` (ReloraFeatures).
+/// Both default to `nil` so a caller that only has a price (a test fake,
+/// a non-subscription product) still constructs one.
 public struct PurchasesProduct: Sendable, Equatable {
     public var identifier: String
     public var localizedPriceString: String
+    public var subscriptionPeriod: PurchasesSubscriptionPeriod?
+    public var introductoryOffer: PurchasesIntroOffer?
 
-    public init(identifier: String, localizedPriceString: String) {
+    public init(
+        identifier: String,
+        localizedPriceString: String,
+        subscriptionPeriod: PurchasesSubscriptionPeriod? = nil,
+        introductoryOffer: PurchasesIntroOffer? = nil
+    ) {
         self.identifier = identifier
         self.localizedPriceString = localizedPriceString
+        self.subscriptionPeriod = subscriptionPeriod
+        self.introductoryOffer = introductoryOffer
     }
+}
+
+/// One billing period, remapped from RevenueCat's `SubscriptionPeriod`:
+/// a unit and how many of them. "P1M" arrives here as `.month` × 1.
+public struct PurchasesSubscriptionPeriod: Sendable, Equatable {
+    public enum Unit: Sendable, Equatable {
+        case day
+        case week
+        case month
+        case year
+    }
+
+    public var unit: Unit
+    public var value: Int
+
+    public init(unit: Unit, value: Int) {
+        self.unit = unit
+        self.value = value
+    }
+}
+
+/// A product's introductory offer, remapped from RevenueCat's
+/// `StoreProductDiscount`. Only `.freeTrial` changes the paywall's copy
+/// today; the other two modes are carried so a later pay-up-front offer
+/// does not need this seam widened again.
+public struct PurchasesIntroOffer: Sendable, Equatable {
+    public enum PaymentMode: Sendable, Equatable {
+        case freeTrial
+        case payAsYouGo
+        case payUpFront
+    }
+
+    public var period: PurchasesSubscriptionPeriod
+    public var paymentMode: PaymentMode
+    public var localizedPriceString: String
+
+    public init(period: PurchasesSubscriptionPeriod, paymentMode: PaymentMode, localizedPriceString: String) {
+        self.period = period
+        self.paymentMode = paymentMode
+        self.localizedPriceString = localizedPriceString
+    }
+}
+
+/// Whether this Apple ID may take a product's introductory offer,
+/// remapped from RevenueCat's `IntroEligibilityStatus`.
+///
+/// `.unknown` (StoreKit could not answer, or the check never ran) is
+/// deliberately distinct from `.noOffer` (the product has no offer at
+/// all): the paywall shows trial copy for `.unknown` and never for
+/// `.noOffer`.
+public enum PurchasesIntroEligibility: Sendable, Equatable {
+    case eligible
+    case ineligible
+    case unknown
+    case noOffer
 }
 
 /// Mirrors RevenueCat's `PeriodType`, minus `PurchasesCustomerInfo`'s own

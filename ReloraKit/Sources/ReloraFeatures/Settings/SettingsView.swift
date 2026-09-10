@@ -69,6 +69,8 @@ public struct SettingsView: View {
                 supportSection
                 if viewModel.isAccount {
                     signOutSection
+                } else if viewModel.isAnonymous {
+                    deleteDataSection
                 }
             }
             .scrollContentBackground(.hidden)
@@ -108,17 +110,19 @@ public struct SettingsView: View {
         } message: {
             Text(SettingsConfirmation.signOut.message)
         }
+        // One dialog for both rows: the action is the same call, and only
+        // the wording changes with whether there is an account to name.
         .confirmationDialog(
-            SettingsConfirmation.deleteAccount.title,
+            deleteDialog.title,
             isPresented: $showDeleteConfirm,
             titleVisibility: .visible
         ) {
-            Button(SettingsConfirmation.deleteAccount.confirmLabel, role: .destructive) {
+            Button(deleteDialog.confirmLabel, role: .destructive) {
                 Task { await viewModel.confirmDeleteAccount() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(SettingsConfirmation.deleteAccount.message)
+            Text(deleteDialog.message)
         }
         .confirmationDialog(
             SettingsConfirmation.deleteAllRecordings.title,
@@ -135,6 +139,10 @@ public struct SettingsView: View {
         .sheet(item: $viewModel.presentedSheet, onDismiss: { Task { await viewModel.load() } }) { sheet in
             sheetView(sheet)
         }
+    }
+
+    private var deleteDialog: SettingsConfirmation.Dialog {
+        viewModel.isAccount ? SettingsConfirmation.deleteAccount : SettingsConfirmation.deleteGuestData
     }
 
     // MARK: - Sub-screens
@@ -376,6 +384,20 @@ public struct SettingsView: View {
             }
         } footer: {
             footerText("Deleting your account removes everything synced to it and every note on this iPhone.")
+        }
+        .listRowBackground(ReloraColor.card)
+    }
+
+    /// The anonymous half of Sign Out / Delete Account — see
+    /// `SettingsConfirmation.deleteGuestData`. Same call as Delete Account:
+    /// the edge function takes the anonymous session's token.
+    private var deleteDataSection: some View {
+        Section {
+            actionRow("Delete My Data", running: viewModel.deletingAccount, role: .destructive) {
+                showDeleteConfirm = true
+            }
+        } footer: {
+            footerText("Removes the example data and anything synced from this iPhone.")
         }
         .listRowBackground(ReloraColor.card)
     }

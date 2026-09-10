@@ -582,16 +582,17 @@ struct VoiceDisclosureTests {
     /// is reworded in one place and not the other, the app tells someone two
     /// different stories about their audio.
     @Test func thePrivacyLineReusesBothSettingsClaims() {
-        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.serversDoNotKeepAudio))
+        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.audioIsNotKept))
         #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.recordingsStayOnDevice))
     }
 
-    /// The hoist that made the line above possible must not have changed
-    /// what Settings says. Pinned against the 2.3.1 literal, byte for byte.
-    @Test func theVoiceFooterIsUnchangedByTheHoist() {
+    /// What Settings says about audio, pinned byte for byte. The sentence
+    /// is a privacy claim, so it may not drift without someone checking
+    /// that the app still takes the route it describes.
+    @Test func theVoiceFooterSaysWhereTheAudioGoes() {
         #expect(
             SettingsVoiceCopy.footer
-                == "Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Relora's servers transcribe the audio and do not keep it."
+                == "Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Your audio is sent securely to a transcription service that does not keep it."
         )
     }
 

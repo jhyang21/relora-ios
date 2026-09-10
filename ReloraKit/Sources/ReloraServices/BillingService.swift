@@ -154,6 +154,12 @@ public final class BillingService: Sendable {
     /// unconfigured, the identity is not an account, or the last catalog
     /// fetch came back with nothing — see `isCatalogAvailable`.
     public private(set) var purchaseCatalog: [QuotaPolicy.PlanID: PurchasesProduct] = [:]
+    /// Whether this Apple ID may still take each plan's introductory
+    /// offer, fetched alongside the catalog. Read by `PaywallView` so a
+    /// buyer who has already spent the free trial is never promised it
+    /// again — App Review 3.1.2. Empty in every state
+    /// `purchaseCatalog` is empty in.
+    public private(set) var trialEligibility: [QuotaPolicy.PlanID: PurchasesIntroEligibility] = [:]
     /// False when the last `getProducts` call for an account identity came
     /// back empty — mirrors `loadPurchaseCatalog`'s "unavailable catalog"
     /// state, which `PaywallScreen` shows as a notice instead of prices.
@@ -196,14 +202,18 @@ public final class BillingService: Sendable {
         try? await purchases.logIn(appUserID: userID)
         loggedInUserID = userID
 
+        let productIDs = [config.plusProductID, config.proProductID]
         async let infoResult: PurchasesCustomerInfo? = try? purchases.customerInfo()
-        async let products = purchases.products(identifiers: [config.plusProductID, config.proProductID])
+        async let products = purchases.products(identifiers: productIDs)
+        async let eligibility = purchases.introEligibility(productIDs: productIDs)
 
         let info = await infoResult
         let fetchedProducts = await products
+        let fetchedEligibility = await eligibility
 
         subscriptionSnapshot = info.map { Self.mapSnapshot($0, config: config) } ?? .free
         purchaseCatalog = Self.buildCatalog(fetchedProducts, config: config)
+        trialEligibility = Self.buildEligibility(fetchedEligibility, catalog: purchaseCatalog)
         isCatalogAvailable = !fetchedProducts.isEmpty
     }
 
@@ -243,6 +253,7 @@ public final class BillingService: Sendable {
     private func reset() {
         subscriptionSnapshot = .free
         purchaseCatalog = [:]
+        trialEligibility = [:]
         isCatalogAvailable = true
         loggedInUserID = nil
     }
@@ -271,6 +282,26 @@ public final class BillingService: Sendable {
             return SubscriptionSnapshot(planID: .plus, periodType: plus.periodType, store: plus.store, willRenew: plus.willRenew, expirationDate: plus.expirationDate)
         }
         return .free
+    }
+
+    /// Re-keys the eligibility answers by plan, and answers `.noOffer` for
+    /// a plan whose product carries no introductory offer at all —
+    /// StoreKit is not asked to distinguish "you already used it" from
+    /// "there is nothing to use", and the paywall needs that difference.
+    /// A plan absent from the catalog is left out entirely.
+    private static func buildEligibility(
+        _ eligibility: [String: PurchasesIntroEligibility],
+        catalog: [QuotaPolicy.PlanID: PurchasesProduct]
+    ) -> [QuotaPolicy.PlanID: PurchasesIntroEligibility] {
+        var result: [QuotaPolicy.PlanID: PurchasesIntroEligibility] = [:]
+        for (planID, product) in catalog {
+            guard product.introductoryOffer != nil else {
+                result[planID] = .noOffer
+                continue
+            }
+            result[planID] = eligibility[product.identifier] ?? .unknown
+        }
+        return result
     }
 
     private static func buildCatalog(_ products: [PurchasesProduct], config: BillingConfig) -> [QuotaPolicy.PlanID: PurchasesProduct] {

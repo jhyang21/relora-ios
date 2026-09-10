@@ -112,6 +112,17 @@ public final class SettingsViewModel {
         return false
     }
 
+    /// A real Supabase anonymous session — one that has a server-side row
+    /// the delete edge function can reach. `.localGuest` is deliberately
+    /// excluded: it never opened a session, so there is nothing remote to
+    /// delete and `deleteAccount()` would fail on a request nobody can
+    /// authorize. Those installs keep the Delete All Recordings row and
+    /// nothing else.
+    public var isAnonymous: Bool {
+        if case .anonymous = identity.identity { return true }
+        return false
+    }
+
     /// The real RevenueCat entitlement, which decides whether the See Plans
     /// and Manage Subscription rows appear.
     private var planID: QuotaPolicy.PlanID {

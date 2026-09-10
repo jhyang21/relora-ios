@@ -26,11 +26,14 @@ final class NoOpLocalGuestIDStore: LocalGuestIDStore, @unchecked Sendable {
     func write(_ userID: String?) throws {}
 }
 
-/// Never resolves a session and never succeeds any write path — enough to
-/// drive `IdentityController.bootstrap()` through to `isBootstrapped = true`
-/// with `identity` left at `.unresolved`.
+/// Never succeeds any write path — enough to drive
+/// `IdentityController.bootstrap()` through to `isBootstrapped = true` on
+/// whichever identity `session` implies. The default `nil` resolves no
+/// session at all, which leaves `identity` at `.unresolved`.
 struct NoOpAuthBackend: AuthBackend {
-    func currentSession() async throws -> AuthSession? { nil }
+    var session: AuthSession?
+
+    func currentSession() async throws -> AuthSession? { session }
     func signInAnonymously() async throws -> AuthSession { throw NoOpError() }
     func signUp(email: String, password: String) async throws -> AuthSession? { throw NoOpError() }
     func signIn(email: String, password: String) async throws -> AuthSession { throw NoOpError() }

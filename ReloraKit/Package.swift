@@ -90,7 +90,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ReloraFeaturesTests",
-            dependencies: ["ReloraFeatures", "ReloraCore", "ReloraData", "ReloraServices", "ReloraSync"]
+            // ReloraDesign is listed even though ReloraFeatures re-exports
+            // nothing: `SettingsViewModel.init` takes a `ReloraToastCenter`,
+            // so a test that builds one has to name a ReloraDesign type.
+            dependencies: ["ReloraFeatures", "ReloraCore", "ReloraData", "ReloraServices", "ReloraSync", "ReloraDesign"]
         )
     ]
 )

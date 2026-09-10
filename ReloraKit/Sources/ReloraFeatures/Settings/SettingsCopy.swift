@@ -6,7 +6,7 @@ import ReloraSync
 /// Legal links and support contact, ported verbatim from `legalLinks.ts`.
 public enum SettingsLegal {
     public static let privacyPolicyURL = URL(string: "https://reloraapp.com/privacy")!
-    public static let termsOfUseURL = URL(string: "https://reloraapp.com/terms-of-use")!
+    public static let termsOfUseURL = URL(string: "https://reloraapp.com/terms")!
     public static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
     public static let supportEmail = "contact@immform.com"
 
@@ -90,6 +90,17 @@ public enum SettingsConfirmation {
     public static let deleteAccount = Dialog(
         title: "Delete Account?",
         message: "This permanently deletes your account, everything synced to it, and every note on this iPhone. Export your data first if you want a copy.",
+        confirmLabel: "Delete"
+    )
+
+    /// The same dialog for someone who never made an account. Apple 5.1.1
+    /// (v) asks that a person can delete what the app holds about them, and
+    /// an anonymous session holds notes and a server-side row just as an
+    /// account does — so the row exists there too, and says "data" rather
+    /// than "account" because there is no account to name.
+    public static let deleteGuestData = Dialog(
+        title: "Delete My Data?",
+        message: "This permanently removes your example data and any notes on this iPhone. This cannot be undone.",
         confirmLabel: "Delete"
     )
 
@@ -189,11 +200,15 @@ public enum SettingsVoiceCopy {
     /// word for word instead of writing its own paraphrase. One place to
     /// change, and one place a copy test can pin.
     public static let recordingsStayOnDevice = "Recordings always stay on this iPhone for replay."
-    public static let serversDoNotKeepAudio = "Relora's servers transcribe the audio and do not keep it."
+    /// The device streams the audio to a third-party transcription
+    /// service, not to Relora's own servers. The sentence names no vendor -
+    /// that is the privacy policy's job, and the App Privacy labels' - but
+    /// it must not claim a route the app does not take.
+    public static let audioIsNotKept = "Your audio is sent securely to a transcription service that does not keep it."
 
     /// The Voice section's footer, byte-identical to the literal it
     /// replaces in `SettingsView`.
-    public static let footer = "Keeps the text of each voice note. \(recordingsStayOnDevice) \(serversDoNotKeepAudio)"
+    public static let footer = "Keeps the text of each voice note. \(recordingsStayOnDevice) \(audioIsNotKept)"
 
     public static func recordingsValue(count: Int, formattedSize: String) -> String {
         guard count > 0 else { return "None" }

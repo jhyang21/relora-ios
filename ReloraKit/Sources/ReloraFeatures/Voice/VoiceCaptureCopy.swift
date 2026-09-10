@@ -41,7 +41,7 @@ public enum VoiceCaptureCopy {
     public static let disclosureBody =
         "You talk, and Relora writes the note. You review it before anything is saved."
     public static let disclosurePrivacy =
-        "\(SettingsVoiceCopy.serversDoNotKeepAudio) \(SettingsVoiceCopy.recordingsStayOnDevice)"
+        "\(SettingsVoiceCopy.audioIsNotKept) \(SettingsVoiceCopy.recordingsStayOnDevice)"
     public static let disclosureMicNotice = "iOS will ask for microphone access next."
     public static let disclosurePrivacyLink = "Privacy Policy"
     public static let disclosureContinue = "Continue"

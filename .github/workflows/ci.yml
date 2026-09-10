@@ -71,6 +71,17 @@ jobs:
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO
 
+      # The privacy manifest is picked up only because `Relora/` is a folder
+      # source in project.yml. A rename or a new exclude would drop it from
+      # the bundle silently, and the first sign would be a rejected upload.
+      - name: Check the privacy manifest reached the app bundle
+        run: |
+          set -euo pipefail
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -type d -name Relora.app | head -n1)
+          if [ -z "$APP" ]; then echo "Relora.app not found under DerivedData" >&2; exit 1; fi
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          echo "PrivacyInfo.xcprivacy found in $APP"
+
       - name: Test ReloraKit
         run: |
           cd ReloraKit

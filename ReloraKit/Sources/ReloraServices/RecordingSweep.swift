@@ -139,6 +139,12 @@ public struct RecordingSweep: Sendable {
         }
     }
 
+    /// The one required-reason API this app touches. Reading
+    /// `.contentModificationDateKey` is declared in
+    /// `Relora/PrivacyInfo.xcprivacy` under
+    /// `NSPrivacyAccessedAPICategoryFileTimestamp` with reason C617.1 —
+    /// a timestamp on a file in the app's own container, used only inside
+    /// the app. Change what this reads and the manifest changes with it.
     private static func modificationDate(of url: URL) -> Date? {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
         return values?.contentModificationDate
