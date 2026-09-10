@@ -8,33 +8,16 @@ import ReloraSync
 @testable import ReloraFeatures
 
 /// What Settings shows at the bottom of the screen depends on which of the
-/// four identities is in play, and 2.6.1 added a third answer: an account
-/// gets Sign Out and Delete Account, a real anonymous session gets Delete
-/// My Data, and a local guest gets neither — it never opened a session, so
-/// there is nothing on the server for the delete endpoint to remove.
+/// four identities is in play: an account gets Sign Out and Delete
+/// Account, a real anonymous session gets Delete My Data, and a local
+/// guest gets neither — it never opened a session, so there is nothing on
+/// the server for the delete endpoint to remove.
 ///
 /// The view builds that choice out of `isAccount` and `isAnonymous`, so
 /// those two are what this pins.
 @Suite struct SettingsViewModelIdentityTests {
 
     // MARK: - Collaborators
-
-    /// Returns whatever session it was built with, so `bootstrap()` lands
-    /// the controller on a chosen identity. Every other call throws: no
-    /// test here signs in or out.
-    private struct StubAuthBackend: AuthBackend {
-        let session: AuthSession?
-
-        func currentSession() async throws -> AuthSession? { session }
-        func signInAnonymously() async throws -> AuthSession { throw NoOpError() }
-        func signUp(email: String, password: String) async throws -> AuthSession? { throw NoOpError() }
-        func signIn(email: String, password: String) async throws -> AuthSession { throw NoOpError() }
-        func signInWithApple(idToken: String, nonce: String) async throws -> AuthSession { throw NoOpError() }
-        func signOut() async throws {}
-        func resetPassword(email: String, redirectTo: URL?) async throws { throw NoOpError() }
-        func updatePassword(_ newPassword: String) async throws { throw NoOpError() }
-        func sessionFromURL(_ url: URL) async throws -> AuthSession { throw NoOpError() }
-    }
 
     private struct StubSyncTransport: SyncTransport {
         func upsert(table: SyncTable, rows: [JSONObject], onConflict: String) async throws {}
@@ -62,7 +45,7 @@ import ReloraSync
     private func makeViewModel(session: AuthSession?) async throws -> SettingsViewModel {
         let database = try AppDatabase.inMemory()
         let identity = IdentityController(
-            authBackend: StubAuthBackend(session: session),
+            authBackend: NoOpAuthBackend(session: session),
             ownershipMigration: NoOpOwnershipMigration(),
             localGuestIDStore: NoOpLocalGuestIDStore()
         )

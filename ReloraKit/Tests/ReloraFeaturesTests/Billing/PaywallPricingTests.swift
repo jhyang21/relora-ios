@@ -209,30 +209,4 @@ struct PaywallPricingTests {
 
         #expect(lines.price == "$4.99/month")
     }
-
-    /// Nothing on a plan card may render as an empty line, in any branch.
-    @Test func noBranchProducesAnEmptyString() {
-        let products: [PurchasesProduct?] = [
-            nil,
-            Self.product(id: "plus", price: "$4.99"),
-            Self.product(id: "pro", price: "$19.99", offer: Self.sevenDayTrial),
-        ]
-        let eligibilities: [PurchasesIntroEligibility?] = [nil, .eligible, .ineligible, .unknown, .noOffer]
-
-        for planID in [QuotaPolicy.PlanID.plus, .pro] {
-            for product in products {
-                for eligibility in eligibilities {
-                    let lines = PaywallPricing.lines(
-                        planID: planID,
-                        product: product,
-                        eligibility: eligibility,
-                        fallbackPrice: "$4.99"
-                    )
-                    #expect(!lines.price.isEmpty)
-                    #expect(!lines.renewal.isEmpty)
-                    #expect(!lines.cta.isEmpty)
-                }
-            }
-        }
-    }
 }

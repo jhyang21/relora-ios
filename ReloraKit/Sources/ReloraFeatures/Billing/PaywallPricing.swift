@@ -5,16 +5,13 @@ import ReloraServices
 /// Writes the three lines a plan card says about money: the price, the
 /// renewal sentence, and the button.
 ///
-/// Every one of them used to be a literal in `paywallContent.ts` — "$4.99
-/// /month", "7 days free, then $19.99/month", "Start 7-day free trial".
 /// App Review 3.1.2 wants the price, the billing period and the renewal
 /// terms shown on the purchase screen itself, and wants them true: a
 /// storefront in another currency, a price change in App Store Connect, or
 /// an Apple ID that has already spent the free trial each make a hardcoded
 /// line a lie. So the lines are computed from the live `PurchasesProduct`
-/// and StoreKit's own eligibility answer, and the old literals survive
-/// only as `fallbackPrice` — what a card shows before the catalog loads,
-/// or when it fails to.
+/// and StoreKit's own eligibility answer; `fallbackPrice` is the static
+/// price a card shows before the catalog loads, or when it fails to.
 ///
 /// Pure and free of SwiftUI on purpose: this is the part with rules in it,
 /// and `PaywallPricingTests` asserts every branch without a screen.
@@ -114,15 +111,9 @@ enum PaywallPricing {
         case .week:
             count = offer.period.value * 7
             unit = "day"
-        case .day:
+        case .day, .month, .year:
             count = offer.period.value
-            unit = "day"
-        case .month:
-            count = offer.period.value
-            unit = "month"
-        case .year:
-            count = offer.period.value
-            unit = "year"
+            unit = unitWord(offer.period.unit)
         }
         let phrase = count == 1 ? "\(count) \(unit)" : "\(count) \(unit)s"
         return (count, unit, phrase)

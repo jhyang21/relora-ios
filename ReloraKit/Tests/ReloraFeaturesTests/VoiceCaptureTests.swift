@@ -586,12 +586,9 @@ struct VoiceDisclosureTests {
         #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.recordingsStayOnDevice))
     }
 
-    /// What Settings says about audio, pinned byte for byte.
-    ///
-    /// Re-pinned against the 2.6.1 literal. The 2.3.1 wording said Relora's
-    /// servers transcribe the audio; the default path streams it from the
-    /// device to a third-party transcription service instead, so the claim
-    /// was wrong before it was ever a copy test.
+    /// What Settings says about audio, pinned byte for byte. The sentence
+    /// is a privacy claim, so it may not drift without someone checking
+    /// that the app still takes the route it describes.
     @Test func theVoiceFooterSaysWhereTheAudioGoes() {
         #expect(
             SettingsVoiceCopy.footer

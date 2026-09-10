@@ -70,8 +70,6 @@ private actor FakePurchasesProviding: PurchasesProviding {
 
     func setCustomerInfoResult(_ result: Result<PurchasesCustomerInfo, Error>) { customerInfoResult = result }
 
-    func setEligibilityResult(_ result: [String: PurchasesIntroEligibility]) { eligibilityResult = result }
-
     func configure(apiKey: String) async {
         configureCalls.append(apiKey)
     }

@@ -200,11 +200,10 @@ public enum SettingsVoiceCopy {
     /// word for word instead of writing its own paraphrase. One place to
     /// change, and one place a copy test can pin.
     public static let recordingsStayOnDevice = "Recordings always stay on this iPhone for replay."
-    /// Corrected in 2.6.1. The old wording said Relora's own servers do the
-    /// transcribing, which the default path does not: the device streams
-    /// the audio to a third-party transcription service. The sentence names
-    /// no vendor - that is the privacy policy's job, and the App Privacy
-    /// labels' - but it must not claim a route the app does not take.
+    /// The device streams the audio to a third-party transcription
+    /// service, not to Relora's own servers. The sentence names no vendor -
+    /// that is the privacy policy's job, and the App Privacy labels' - but
+    /// it must not claim a route the app does not take.
     public static let audioIsNotKept = "Your audio is sent securely to a transcription service that does not keep it."
 
     /// The Voice section's footer, byte-identical to the literal it

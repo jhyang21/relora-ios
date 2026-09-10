@@ -388,11 +388,9 @@ public struct SettingsView: View {
         .listRowBackground(ReloraColor.card)
     }
 
-    /// The anonymous half of Sign Out / Delete Account: a person who never
-    /// made an account still has notes on this iPhone and a row on the
-    /// server, and Apple 5.1.1 (v) asks that they can delete both without
-    /// signing up first. Same call as Delete Account — the edge function
-    /// takes the anonymous session's token.
+    /// The anonymous half of Sign Out / Delete Account — see
+    /// `SettingsConfirmation.deleteGuestData`. Same call as Delete Account:
+    /// the edge function takes the anonymous session's token.
     private var deleteDataSection: some View {
         Section {
             actionRow("Delete My Data", running: viewModel.deletingAccount, role: .destructive) {

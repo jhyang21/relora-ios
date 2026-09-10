@@ -196,10 +196,6 @@ public struct PaywallView: View {
     private func planCard(_ plan: PaywallPlanDefinition) -> some View {
         let isCurrentPlan = billing.subscriptionSnapshot.planID == plan.planID
         let isLoadingThisPlan = loadingAction == .plan(plan.planID)
-        // Price, renewal sentence and button label all come from the live
-        // catalog entry and StoreKit's eligibility answer - see
-        // `PaywallPricing`. `plan.priceLine` is only the pre-catalog
-        // fallback now.
         let lines = PaywallPricing.lines(
             planID: plan.planID,
             product: billing.purchaseCatalog[plan.planID],

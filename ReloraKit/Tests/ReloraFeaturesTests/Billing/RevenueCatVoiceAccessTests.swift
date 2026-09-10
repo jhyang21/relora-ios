@@ -23,27 +23,18 @@ private let testConfig = BillingConfig(
 /// ReloraServicesTests), so no redeclaration conflict.
 private actor FakePurchasesProviding: PurchasesProviding {
     private let customerInfoResult: Result<PurchasesCustomerInfo, Error>
-    /// Per-product answers for `introEligibility`; anything not listed is
-    /// `.eligible`, which is the answer a fresh Apple ID gets.
-    private var eligibilityResult: [String: PurchasesIntroEligibility]
 
-    init(
-        customerInfoResult: Result<PurchasesCustomerInfo, Error>,
-        eligibilityResult: [String: PurchasesIntroEligibility] = [:]
-    ) {
+    init(customerInfoResult: Result<PurchasesCustomerInfo, Error>) {
         self.customerInfoResult = customerInfoResult
-        self.eligibilityResult = eligibilityResult
     }
-
-    func setEligibilityResult(_ result: [String: PurchasesIntroEligibility]) { eligibilityResult = result }
 
     func configure(apiKey: String) async {}
     func logIn(appUserID: String) async throws -> PurchasesCustomerInfo { try customerInfoResult.get() }
     func logOut() async throws {}
     func products(identifiers: [String]) async -> [PurchasesProduct] { [] }
-    func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] {
-        Dictionary(uniqueKeysWithValues: productIDs.map { ($0, eligibilityResult[$0] ?? .eligible) })
-    }
+    /// An empty catalog leaves `trialEligibility` empty whatever this
+    /// answers, and nothing here reads it.
+    func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] { [:] }
     func customerInfo() async throws -> PurchasesCustomerInfo { try customerInfoResult.get() }
     func purchase(productID: String) async throws -> PurchasesPurchaseResult { .userCancelled }
     func restorePurchases() async throws -> PurchasesCustomerInfo { try customerInfoResult.get() }
