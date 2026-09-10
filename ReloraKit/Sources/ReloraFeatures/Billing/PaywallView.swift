@@ -164,6 +164,21 @@ public struct PaywallView: View {
                     Text("Manage or cancel anytime in your App Store subscription settings.")
                         .font(ReloraFont.footnote)
                         .foregroundStyle(ReloraColor.mutedInk)
+
+                    // Apple 3.1.2 wants a working link to the terms of use
+                    // and to the privacy policy on the purchase screen
+                    // itself. The same links live in Settings, but this
+                    // sheet is reachable without ever opening Settings, so
+                    // they have to be here too.
+                    HStack(spacing: 16) {
+                        Link("Terms of Use", destination: SettingsLegal.termsOfUseURL)
+                            .accessibilityLabel("Terms of Use, opens in Safari")
+                        Link("Privacy Policy", destination: SettingsLegal.privacyPolicyURL)
+                            .accessibilityLabel("Privacy Policy, opens in Safari")
+                    }
+                    .font(ReloraFont.footnote)
+                    .foregroundStyle(ReloraColor.tertiaryInk)
+                    .underline()
                 }
             }
             .padding(.horizontal, ReloraLayout.screenHPadding)
@@ -181,7 +196,16 @@ public struct PaywallView: View {
     private func planCard(_ plan: PaywallPlanDefinition) -> some View {
         let isCurrentPlan = billing.subscriptionSnapshot.planID == plan.planID
         let isLoadingThisPlan = loadingAction == .plan(plan.planID)
-        let priceText = displayedPrice(for: plan.planID, catalog: billing.purchaseCatalog, fallback: plan.priceLine)
+        // Price, renewal sentence and button label all come from the live
+        // catalog entry and StoreKit's eligibility answer - see
+        // `PaywallPricing`. `plan.priceLine` is only the pre-catalog
+        // fallback now.
+        let lines = PaywallPricing.lines(
+            planID: plan.planID,
+            product: billing.purchaseCatalog[plan.planID],
+            eligibility: billing.trialEligibility[plan.planID],
+            fallbackPrice: plan.priceLine
+        )
 
         ReloraCard(shadow: plan.featured ? .raised : .card) {
             VStack(alignment: .leading, spacing: ReloraSpacing.sm) {
@@ -200,7 +224,7 @@ public struct PaywallView: View {
                     Spacer()
                 }
 
-                Text(priceText)
+                Text(lines.price)
                     .font(ReloraFont.body)
                     .foregroundStyle(ReloraColor.mutedInk)
 
@@ -217,20 +241,21 @@ public struct PaywallView: View {
                     }
                 }
 
-                if plan.planID == .pro {
-                    Text(buildProRenewalLine(proRenewalPrice(catalog: billing.purchaseCatalog)))
-                        .font(ReloraFont.footnote)
-                        .foregroundStyle(ReloraColor.tertiaryInk)
-                }
+                // Both cards carry it, not just Pro: Apple 3.1.2 asks for
+                // the renewal terms of every auto-renewing plan the screen
+                // offers.
+                Text(lines.renewal)
+                    .font(ReloraFont.footnote)
+                    .foregroundStyle(ReloraColor.tertiaryInk)
 
                 Button {
                     Task { await runPurchase(plan.planID) }
                 } label: {
-                    Text(isCurrentPlan ? "Current plan" : (isLoadingThisPlan ? "Processing..." : plan.cta))
+                    Text(isCurrentPlan ? "Current plan" : (isLoadingThisPlan ? "Processing..." : lines.cta))
                 }
                 .buttonStyle(.reloraPrimary)
                 .disabled(loadingAction != nil || isCurrentPlan)
-                .accessibilityLabel("\(plan.title), \(priceText)")
+                .accessibilityLabel("\(plan.title), \(lines.price)")
             }
         }
     }
@@ -321,8 +346,25 @@ private struct PurchaseSuccessView: View {
     /// accessibility-size text reads as an icon that failed to load.
     @ScaledMetric(relativeTo: .largeTitle) private var sealSize: CGFloat = 44
 
+    /// A Pro purchase is not always a trial: an Apple ID that has already
+    /// spent the free trial buys straight into a paid plan, and telling
+    /// that person their "trial" is active is the same 3.1.2 problem the
+    /// plan cards had.
     private var title: String {
-        snapshot.planID == .pro ? "Your Pro trial is active" : "Your Plus plan is active"
+        if snapshot.trialIsActive { return "Your Pro trial is active" }
+        return snapshot.planID == .pro ? "Your Pro plan is active" : "Your Plus plan is active"
+    }
+
+    /// Eligibility is settled by what was actually bought: a snapshot in
+    /// its trial period proves the offer was taken, and one that is not
+    /// proves it was not.
+    private var lines: PaywallPricing.Lines {
+        PaywallPricing.lines(
+            planID: snapshot.planID,
+            product: catalog[snapshot.planID],
+            eligibility: snapshot.trialIsActive ? .eligible : .ineligible,
+            fallbackPrice: fallbackPrice(for: snapshot.planID)
+        )
     }
 
     private var trialEndDateText: String? {
@@ -330,15 +372,16 @@ private struct PurchaseSuccessView: View {
         return shortDateFormatter.string(from: expirationDate)
     }
 
+    /// Every paid plan says how it renews, not only Pro - the buyer has
+    /// just been charged, and this is the last screen before the app.
     private var bodyText: String {
-        guard snapshot.planID == .pro else {
+        guard snapshot.planID != .free else {
             return "You can keep creating voice notes right away."
         }
-        let renewalLine = buildProRenewalLine(proRenewalPrice(catalog: catalog))
         if let trialEndDateText {
-            return "Free until \(trialEndDateText). \(renewalLine)"
+            return "Free until \(trialEndDateText). \(lines.renewal)"
         }
-        return renewalLine
+        return lines.renewal
     }
 
     var body: some View {
@@ -383,37 +426,43 @@ private struct PurchaseSuccessView: View {
 private struct PaywallPlanDefinition {
     let planID: QuotaPolicy.PlanID
     let title: String
+    /// The pre-catalog fallback price, and nothing else: the period, the
+    /// trial wording and the button label are `PaywallPricing`'s to write
+    /// from the live product.
     let priceLine: String
     let bullets: [String]
-    let cta: String
     let featured: Bool
 }
 
-/// Mirrors `PAYWALL_PLANS` (paywallContent.ts) verbatim.
+/// The fallback price for a plan, for a card with no live product yet.
+private func fallbackPrice(for planID: QuotaPolicy.PlanID) -> String {
+    paywallPlans.first { $0.planID == planID }?.priceLine ?? ""
+}
+
+/// Mirrors `PAYWALL_PLANS` (paywallContent.ts) minus the money: the prices
+/// here are bare fallbacks, and the CTA is computed.
 private let paywallPlans: [PaywallPlanDefinition] = [
     PaywallPlanDefinition(
         planID: .plus,
         title: "Plus",
-        priceLine: "$4.99/month",
+        priceLine: "$4.99",
         bullets: [
             "100 voice notes per month",
             "Up to 1 minute per note",
             "Organized notes and search",
         ],
-        cta: "Choose Plus",
         featured: false
     ),
     PaywallPlanDefinition(
         planID: .pro,
         title: "Pro",
-        priceLine: "7 days free, then $19.99/month",
+        priceLine: "$19.99",
         bullets: [
             "Unlimited voice notes",
             "Up to 5 minutes per note",
             "Lower latency",
             "Smarter note organization",
         ],
-        cta: "Start 7-day free trial",
         featured: true
     ),
 ]
@@ -443,31 +492,6 @@ private func paywallCopy(for reason: AppRouter.PaywallReason?) -> (headline: Str
             "Choose a plan to keep capturing notes about the people in your life."
         )
     }
-}
-
-/// Mirrors `getDisplayedPlanPrice`: the live storefront price when the
-/// catalog has one, else the copy's static `priceLine`.
-private func displayedPrice(for planID: QuotaPolicy.PlanID, catalog: [QuotaPolicy.PlanID: PurchasesProduct], fallback: String) -> String {
-    if let product = catalog[planID] {
-        let trimmed = product.localizedPriceString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-    }
-    return fallback
-}
-
-/// Mirrors `getPlanRenewalPrice(catalog, 'pro')`.
-private func proRenewalPrice(catalog: [QuotaPolicy.PlanID: PurchasesProduct]) -> String? {
-    guard let product = catalog[.pro] else { return nil }
-    let trimmed = product.localizedPriceString.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-}
-
-/// Mirrors `buildProRenewalLine`.
-private func buildProRenewalLine(_ renewalPrice: String?) -> String {
-    if let renewalPrice {
-        return "Renews automatically at \(renewalPrice)/month unless canceled before the trial ends."
-    }
-    return "Renews automatically unless canceled before the trial ends."
 }
 
 /// Mirrors `formatMonthlyQuotaResetDate`: usage resets on the local

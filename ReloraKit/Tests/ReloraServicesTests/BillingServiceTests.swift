@@ -48,22 +48,29 @@ private actor FakePurchasesProviding: PurchasesProviding {
     private var productsResult: [PurchasesProduct]
     private var purchaseResult: Result<PurchasesPurchaseResult, Error>
     private var restoreResult: Result<PurchasesCustomerInfo, Error>
+    /// Per-product answers for `introEligibility`; anything not listed is
+    /// `.eligible`, which is the answer a fresh Apple ID gets.
+    private var eligibilityResult: [String: PurchasesIntroEligibility]
 
     init(
         logInResult: Result<PurchasesCustomerInfo, Error> = .success(.empty),
         customerInfoResult: Result<PurchasesCustomerInfo, Error> = .success(.empty),
         productsResult: [PurchasesProduct] = [],
         purchaseResult: Result<PurchasesPurchaseResult, Error> = .success(.userCancelled),
-        restoreResult: Result<PurchasesCustomerInfo, Error> = .success(.empty)
+        restoreResult: Result<PurchasesCustomerInfo, Error> = .success(.empty),
+        eligibilityResult: [String: PurchasesIntroEligibility] = [:]
     ) {
         self.logInResult = logInResult
         self.customerInfoResult = customerInfoResult
+        self.eligibilityResult = eligibilityResult
         self.productsResult = productsResult
         self.purchaseResult = purchaseResult
         self.restoreResult = restoreResult
     }
 
     func setCustomerInfoResult(_ result: Result<PurchasesCustomerInfo, Error>) { customerInfoResult = result }
+
+    func setEligibilityResult(_ result: [String: PurchasesIntroEligibility]) { eligibilityResult = result }
 
     func configure(apiKey: String) async {
         configureCalls.append(apiKey)
@@ -94,6 +101,10 @@ private actor FakePurchasesProviding: PurchasesProviding {
 
     func restorePurchases() async throws -> PurchasesCustomerInfo {
         try restoreResult.get()
+    }
+
+    func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] {
+        Dictionary(uniqueKeysWithValues: productIDs.map { ($0, eligibilityResult[$0] ?? .eligible) })
     }
 }
 
@@ -199,6 +210,84 @@ private actor FakePurchasesProviding: PurchasesProviding {
     #expect(billing.purchaseCatalog[.plus]?.localizedPriceString == "$4.99")
     #expect(billing.purchaseCatalog[.pro]?.localizedPriceString == "$19.99")
     #expect(billing.isCatalogAvailable)
+}
+
+// MARK: - Trial eligibility
+
+/// The Pro product in these three tests carries a real seven-day trial;
+/// only the eligibility answer moves. That is the whole point of the
+/// property: the offer is on the product either way, and what a given
+/// Apple ID may take is a separate question the paywall must ask.
+private let proTrialProduct = PurchasesProduct(
+    identifier: testConfig.proProductID,
+    localizedPriceString: "$19.99",
+    subscriptionPeriod: PurchasesSubscriptionPeriod(unit: .month, value: 1),
+    introductoryOffer: PurchasesIntroOffer(
+        period: PurchasesSubscriptionPeriod(unit: .week, value: 1),
+        paymentMode: .freeTrial,
+        localizedPriceString: "$0.00"
+    )
+)
+
+@MainActor
+@Test func eligibleTrialIsCarriedThroughToTheSnapshot() async {
+    let fake = FakePurchasesProviding(
+        productsResult: [proTrialProduct],
+        eligibilityResult: [testConfig.proProductID: .eligible]
+    )
+    let billing = BillingService(purchases: fake, config: testConfig)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    #expect(billing.trialEligibility[.pro] == .eligible)
+}
+
+@MainActor
+@Test func anIneligibleAppleIDIsReportedAsIneligible() async {
+    let fake = FakePurchasesProviding(
+        productsResult: [proTrialProduct],
+        eligibilityResult: [testConfig.proProductID: .ineligible]
+    )
+    let billing = BillingService(purchases: fake, config: testConfig)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    #expect(billing.trialEligibility[.pro] == .ineligible)
+}
+
+/// A product with no introductory offer answers `.noOffer` whatever
+/// StoreKit says about it — the fake here would otherwise default to
+/// `.eligible`, which would put trial copy on a plan that has no trial.
+@MainActor
+@Test func aProductWithoutAnOfferIsNoOfferRatherThanEligible() async {
+    let plusWithoutOffer = PurchasesProduct(
+        identifier: testConfig.plusProductID,
+        localizedPriceString: "$4.99",
+        subscriptionPeriod: PurchasesSubscriptionPeriod(unit: .month, value: 1)
+    )
+    let fake = FakePurchasesProviding(productsResult: [plusWithoutOffer])
+    let billing = BillingService(purchases: fake, config: testConfig)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    #expect(billing.trialEligibility[.plus] == .noOffer)
+}
+
+/// Signing out clears the eligibility map with the catalog. A stale
+/// "eligible" on the next guest's paywall would promise a trial against
+/// somebody else's purchase history.
+@MainActor
+@Test func leavingAnAccountClearsTrialEligibility() async {
+    let fake = FakePurchasesProviding(
+        productsResult: [proTrialProduct],
+        eligibilityResult: [testConfig.proProductID: .eligible]
+    )
+    let billing = BillingService(purchases: fake, config: testConfig)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    await billing.handleIdentityChange(.localGuest(userID: "local-guest-1"))
+
+    #expect(billing.trialEligibility.isEmpty)
 }
 
 @MainActor

@@ -42,6 +42,20 @@ import RevenueCat
 ///   - `Store`'s case names (assumed `.appStore`, `.macAppStore`,
 ///     `.playStore`, `.amazon`, plus others folded into `.other` below)
 ///   - `StoreProduct.productIdentifier` / `.localizedPriceString`
+///
+/// The 2.6.1 paywall work added a second unverified batch, same standing:
+///   - `StoreProduct.subscriptionPeriod: SubscriptionPeriod?`, and that
+///     type's `.value: Int` / `.unit: SubscriptionPeriod.Unit` with cases
+///     `.day`, `.week`, `.month`, `.year`
+///   - `StoreProduct.introductoryDiscount: StoreProductDiscount?`, and
+///     that type's `.subscriptionPeriod`, `.localizedPriceString`, and
+///     `.paymentMode: StoreProductDiscount.PaymentMode` with cases
+///     `.payAsYouGo`, `.payUpFront`, `.freeTrial`
+///   - `Purchases.shared.checkTrialOrIntroDiscountEligibility(
+///     productIdentifiers:)` — assumed non-throwing async returning
+///     `[String: IntroEligibility]`
+///   - `IntroEligibility.status: IntroEligibilityStatus` with cases
+///     `.unknown`, `.ineligible`, `.eligible`, `.noIntroOfferExists`
 public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var isConfigured = false
@@ -79,8 +93,19 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         guard !identifiers.isEmpty else { return [] }
         let products = await Purchases.shared.products(identifiers)
         return products.map {
-            PurchasesProduct(identifier: $0.productIdentifier, localizedPriceString: $0.localizedPriceString)
+            PurchasesProduct(
+                identifier: $0.productIdentifier,
+                localizedPriceString: $0.localizedPriceString,
+                subscriptionPeriod: Self.map($0.subscriptionPeriod),
+                introductoryOffer: Self.map($0.introductoryDiscount)
+            )
         }
+    }
+
+    public func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] {
+        guard !productIDs.isEmpty else { return [:] }
+        let results = await Purchases.shared.checkTrialOrIntroDiscountEligibility(productIdentifiers: productIDs)
+        return results.mapValues { Self.map($0.status) }
     }
 
     public func customerInfo() async throws -> PurchasesCustomerInfo {
@@ -137,6 +162,48 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         case .intro: return .intro
         case .trial: return .trial
         case .prepaid: return .prepaid
+        @unknown default: return .unknown
+        }
+    }
+
+    private static func map(_ period: SubscriptionPeriod?) -> PurchasesSubscriptionPeriod? {
+        guard let period else { return nil }
+        let unit: PurchasesSubscriptionPeriod.Unit
+        switch period.unit {
+        case .day: unit = .day
+        case .week: unit = .week
+        case .month: unit = .month
+        case .year: unit = .year
+        @unknown default: return nil
+        }
+        return PurchasesSubscriptionPeriod(unit: unit, value: period.value)
+    }
+
+    /// An offer whose period this seam cannot name (a future unit) is
+    /// dropped rather than guessed at: no offer at all makes the paywall
+    /// quote the plain price, which is always safe to say.
+    private static func map(_ discount: StoreProductDiscount?) -> PurchasesIntroOffer? {
+        guard let discount, let period = map(discount.subscriptionPeriod) else { return nil }
+        let paymentMode: PurchasesIntroOffer.PaymentMode
+        switch discount.paymentMode {
+        case .freeTrial: paymentMode = .freeTrial
+        case .payAsYouGo: paymentMode = .payAsYouGo
+        case .payUpFront: paymentMode = .payUpFront
+        @unknown default: return nil
+        }
+        return PurchasesIntroOffer(
+            period: period,
+            paymentMode: paymentMode,
+            localizedPriceString: discount.localizedPriceString
+        )
+    }
+
+    private static func map(_ status: IntroEligibilityStatus) -> PurchasesIntroEligibility {
+        switch status {
+        case .eligible: return .eligible
+        case .ineligible: return .ineligible
+        case .noIntroOfferExists: return .noOffer
+        case .unknown: return .unknown
         @unknown default: return .unknown
         }
     }

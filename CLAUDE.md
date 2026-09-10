@@ -77,3 +77,8 @@ Authored on Windows against unverified SDK surfaces
 (`docs/macos-build-checklist.md` is the triage index for first-compile
 errors). App Store facts: ASC app ID 6761505803; store/RevenueCat setup
 docs live in the private monorepo (`docs/ios-app-store-release.md`).
+
+2.6.1 — App Store audit fixes: paywall pricing and trial copy read from
+the live StoreKit catalog, Terms and Privacy links on the purchase
+screen, a corrected voice disclosure sentence, `Relora/PrivacyInfo.xcprivacy`,
+and Delete My Data for anonymous sessions.
