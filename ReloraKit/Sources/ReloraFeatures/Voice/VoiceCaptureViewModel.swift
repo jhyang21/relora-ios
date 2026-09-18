@@ -145,6 +145,15 @@ public final class VoiceCaptureViewModel {
     /// same as silence. See `VoiceMeter.tick`.
     @ObservationIgnored private var latestRMS: Float?
     @ObservationIgnored private var isStopping = false
+    /// Set by `close()` and never cleared: the sheet is going away, and
+    /// whatever `beginCapture` is still doing must not open the microphone
+    /// on its way out. `recorder.cancel()` only waits for a start it can
+    /// see in flight. A Discard that lands during the quota snapshot or
+    /// the realtime mint arrives before there is one, and without this
+    /// flag the `recorder.start()` that follows opens the microphone
+    /// behind a closed sheet and streams it to the realtime socket until
+    /// the duration cap.
+    @ObservationIgnored private var isClosing = false
 
     /// Below this, an `.m4a` holds no audio at all — the encoder writes
     /// its first packet a fraction of a second in, and a stop before that
@@ -303,6 +312,10 @@ public final class VoiceCaptureViewModel {
 
     public func beginCapture() async {
         stop()
+        // A Discard that landed during the quota snapshot has already
+        // closed the sheet. Nothing below, the mint least of all, may run
+        // on its behalf.
+        guard !isClosing else { return }
         // `.starting`, not `.recording`: the quota snapshot, the realtime
         // mint and the microphone permission dialog all happen below,
         // before there is a recording to stop. Claiming otherwise is what
@@ -396,8 +409,29 @@ public final class VoiceCaptureViewModel {
             }
         }
 
+        // A Discard that landed during the mint above ran `recorder.cancel()`
+        // against nothing and closed a live session that may not have
+        // existed yet. Both are redone here, against what exists now, and
+        // the microphone stays shut.
+        guard !isClosing else {
+            stop()
+            await releaseRecorder()
+            return
+        }
+
         do {
             try await recorder.start(maxDuration: durationCap)
+            // The Discard may also have landed while `start()` was in
+            // flight. `cancel()` waited for it, but which of the two
+            // resumes first on the actor is the scheduler's call, so this
+            // start can return success after the teardown or before it.
+            // A second `cancel()` is a no-op in one order and the real
+            // teardown in the other.
+            guard !isClosing else {
+                stop()
+                await releaseRecorder()
+                return
+            }
             // The one place `.recording` is entered, and only once the
             // microphone is actually open. Everything that reads
             // `stage == .recording` — the Stop button above all — is
@@ -548,6 +582,14 @@ public final class VoiceCaptureViewModel {
         if backend.httpStatus == 402 {
             onPaywall(VoiceQuotaGate.paywallReason(forServerCode: backend.code))
             return
+        }
+        // Neither of these can be retried: the file on disk is what it is,
+        // and a Retry would read the same bytes to the same end. Cleared so
+        // the card offers a fresh recording instead, for the same reason
+        // `process()` leaves `audio` nil for a capture too short to hold
+        // anything.
+        if backend.code == BackendError.localAudioEmpty || backend.code == BackendError.localAudioReadFailed {
+            audio = nil
         }
         fail(message: VoiceErrorCopy.message(for: backend.code), code: backend.code)
     }
@@ -814,21 +856,29 @@ public final class VoiceCaptureViewModel {
     /// Discards the capture and closes. The audio file goes with it — this is
     /// the one exit that means "I do not want this recording".
     public func discard() {
-        let recorder = environment.recorder
-        let livePipeline = environment.pipeline as? any LiveTranscribingVoicePipeline
         stop()
-        Task {
-            await recorder.cancel()
-            // RN's `cancel()` closes the realtime client alongside the
-            // recorder (`voiceTranscriptionService.ts`); without this the
-            // socket and the recorder's PCM tap outlive the capture.
-            await recorder.setPCMFrameHandler(nil)
-            await livePipeline?.cancelLiveSession()
-        }
+        Task { await self.releaseRecorder() }
         close()
     }
 
+    /// Shuts the recorder and the live session, whatever state they are
+    /// in. Safe to run more than once: `cancel()` with nothing recording
+    /// is a no-op, and so is closing a session that is already closed.
+    /// `beginCapture` runs it a second time when a Discard landed while it
+    /// was still setting up, against whatever the setup had opened since.
+    private func releaseRecorder() async {
+        let recorder = environment.recorder
+        let livePipeline = environment.pipeline as? any LiveTranscribingVoicePipeline
+        await recorder.cancel()
+        // RN's `cancel()` closes the realtime client alongside the
+        // recorder (`voiceTranscriptionService.ts`); without this the
+        // socket and the recorder's PCM tap outlive the capture.
+        await recorder.setPCMFrameHandler(nil)
+        await livePipeline?.cancelLiveSession()
+    }
+
     private func close() {
+        isClosing = true
         stop()
         onClose()
     }

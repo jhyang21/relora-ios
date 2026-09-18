@@ -1012,11 +1012,27 @@ private actor FakeRecorder: VoiceRecording {
     private let startError: RecordingControllerError?
     private let holdsStart: Bool
 
-    private var isRecording = false
+    /// Readable so a test can assert the end state and not only the
+    /// order of calls: a cancel that "came after start" but left this
+    /// true is the hot microphone the order alone would hide.
+    private(set) var isRecording = false
     private var hasEnteredStart = false
     private var isReleased = false
     private var startEntered: CheckedContinuation<Void, Never>?
     private var startGate: CheckedContinuation<Void, Never>?
+
+    /// Mirrors `RecordingController.startTask`: `stop()` and `cancel()`
+    /// wait for a start that is in flight before they act. Without this
+    /// the fake would answer a cancel at once, the held start would then
+    /// finish and set `isRecording`, and a test asserting only on call
+    /// order would pass against a controller that never waited at all.
+    private var isStartInFlight = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func awaitPendingStart() async {
+        guard isStartInFlight else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
 
     init(
         artifact: RecordingArtifact? = FakeRecorder.usableArtifact,
@@ -1068,6 +1084,13 @@ private actor FakeRecorder: VoiceRecording {
     func start(maxDuration: Duration) async throws {
         calls.append(.start)
         hasEnteredStart = true
+        isStartInFlight = true
+        defer {
+            isStartInFlight = false
+            let waiters = startWaiters
+            startWaiters = []
+            waiters.forEach { $0.resume() }
+        }
         startEntered?.resume()
         startEntered = nil
 
@@ -1079,6 +1102,7 @@ private actor FakeRecorder: VoiceRecording {
     }
 
     func stop() async -> RecordingArtifact? {
+        await awaitPendingStart()
         calls.append(.stop)
         guard isRecording else { return nil }
         isRecording = false
@@ -1086,6 +1110,7 @@ private actor FakeRecorder: VoiceRecording {
     }
 
     func cancel() async {
+        await awaitPendingStart()
         calls.append(.cancel)
         isRecording = false
     }
@@ -1104,7 +1129,14 @@ private final class SpyPipeline: VoiceTranscriptionPipeline, @unchecked Sendable
 
     private let lock = NSLock()
     private var _processCalls = 0
+    private let error: BackendError?
     var processCalls: Int { lock.withLock { _processCalls } }
+
+    /// `error`, when given, is what `process` throws instead of answering,
+    /// for the failures the composer has to map to a card.
+    init(error: BackendError? = nil) {
+        self.error = error
+    }
 
     func process(
         recording: VoiceCaptureRecording,
@@ -1112,12 +1144,99 @@ private final class SpyPipeline: VoiceTranscriptionPipeline, @unchecked Sendable
         onProgress: @escaping @Sendable (VoiceProcessingProgress) -> Void
     ) async throws -> VoiceCaptureOutcome {
         lock.withLock { _processCalls += 1 }
+        if let error { throw error }
         return VoiceCaptureOutcome(transcript: "Coffee with Ada.", extraction: nil, usedLocalGuestFallback: false)
+    }
+}
+
+/// A live pipeline whose mint waits for the test. The window between the
+/// composer's `cancelLiveSession()` and `recorder.start()` is where a
+/// Discard used to be answered by a `cancel()` with nothing to cancel.
+private actor GatedLivePipeline: LiveTranscribingVoicePipeline {
+    enum Call: Sendable, Equatable {
+        case beginLiveSession
+        /// Appended just before `beginLiveSession` hands back `.started`,
+        /// so a test can ask what the composer did *after* the mint came
+        /// back rather than merely whether it ever cancelled.
+        case liveSessionStarted
+        case cancelLiveSession
+    }
+
+    nonisolated let mode: VoiceTranscriptionMode = .realtime
+    private(set) var calls: [Call] = []
+    private var hasEnteredMint = false
+    private var isReleased = false
+    private var mintEntered: CheckedContinuation<Void, Never>?
+    private var mintGate: CheckedContinuation<Void, Never>?
+
+    func waitForMint() async {
+        guard !hasEnteredMint else { return }
+        await withCheckedContinuation { mintEntered = $0 }
+    }
+
+    func releaseMint() {
+        isReleased = true
+        mintGate?.resume()
+        mintGate = nil
+    }
+
+    func beginLiveSession(recorder: any VoiceRecording) async -> LiveSessionStart {
+        calls.append(.beginLiveSession)
+        hasEnteredMint = true
+        mintEntered?.resume()
+        mintEntered = nil
+        if !isReleased {
+            await withCheckedContinuation { mintGate = $0 }
+        }
+        calls.append(.liveSessionStarted)
+        return .started(AsyncStream { $0.finish() })
+    }
+
+    func cancelLiveSession() async {
+        calls.append(.cancelLiveSession)
+    }
+
+    func process(
+        recording: VoiceCaptureRecording,
+        allowLocalGuestFallback: Bool,
+        onProgress: @escaping @Sendable (VoiceProcessingProgress) -> Void
+    ) async throws -> VoiceCaptureOutcome {
+        VoiceCaptureOutcome(transcript: "Coffee with Ada.", extraction: nil, usedLocalGuestFallback: false)
     }
 }
 
 private struct StubVoiceAccess: VoiceAccessProviding {
     func accessSnapshot(userID: String?) async -> VoiceAccessSnapshot { .freeAndUnused }
+}
+
+/// An access snapshot that waits for the test. The first thing a capture
+/// does, and the earliest moment a Discard can land.
+private actor GatedVoiceAccess: VoiceAccessProviding {
+    private var hasEnteredSnapshot = false
+    private var isReleased = false
+    private var snapshotEntered: CheckedContinuation<Void, Never>?
+    private var snapshotGate: CheckedContinuation<Void, Never>?
+
+    func waitForSnapshot() async {
+        guard !hasEnteredSnapshot else { return }
+        await withCheckedContinuation { snapshotEntered = $0 }
+    }
+
+    func releaseSnapshot() {
+        isReleased = true
+        snapshotGate?.resume()
+        snapshotGate = nil
+    }
+
+    func accessSnapshot(userID: String?) async -> VoiceAccessSnapshot {
+        hasEnteredSnapshot = true
+        snapshotEntered?.resume()
+        snapshotEntered = nil
+        if !isReleased {
+            await withCheckedContinuation { snapshotGate = $0 }
+        }
+        return .freeAndUnused
+    }
 }
 
 /// A network switch a test can flip mid-test, for the offline panel's
@@ -1131,7 +1250,8 @@ private final class OnlineSwitch {
 @MainActor
 private func makeComposer(
     recorder: FakeRecorder,
-    pipeline: SpyPipeline = SpyPipeline(),
+    pipeline: any VoiceTranscriptionPipeline = SpyPipeline(),
+    access: any VoiceAccessProviding = StubVoiceAccess(),
     hasSeenDisclosure: Bool = true,
     // Defaulted to nil rather than to a fresh switch: a default argument
     // is evaluated outside the function's isolation, and `OnlineSwitch` is
@@ -1161,7 +1281,7 @@ private func makeComposer(
             identity: identity,
             recorder: recorder,
             pipeline: pipeline,
-            access: StubVoiceAccess(),
+            access: access,
             isOnline: { network.isOnline }
         ),
         initialContactID: nil,
@@ -1238,7 +1358,10 @@ struct VoiceCaptureStartingTests {
     }
 
     /// The X mid-start. Before the fix `cancel()` was a no-op here and the
-    /// microphone stayed open behind a closed sheet.
+    /// microphone stayed open behind a closed sheet. The end state is the
+    /// assertion that matters: the fake honours the held start the way the
+    /// real controller does, so `.cancel` after `.start` on its own would
+    /// not say whether anything was actually shut.
     @MainActor
     @Test func closingMidStartCancelsTheRecorder() async throws {
         let recorder = FakeRecorder(holdsStart: true)
@@ -1252,7 +1375,60 @@ struct VoiceCaptureStartingTests {
 
         _ = await recorder.waitFor(.cancel)
         let lifecycle = await recorder.lifecycle
-        #expect(lifecycle == [.start, .cancel])
+        #expect(lifecycle.first == .start)
+        #expect(lifecycle.contains(.cancel))
+        #expect(!lifecycle.dropFirst().contains(.start))
+        let isRecording = await recorder.isRecording
+        #expect(isRecording == false)
+    }
+
+    /// The X before the start: during the quota snapshot, the earliest
+    /// moment a capture can be abandoned. `recorder.cancel()` has nothing
+    /// to wait for here, so the composer itself has to notice it is
+    /// closing and never call `start()` at all.
+    @MainActor
+    @Test func closingDuringTheSnapshotNeverOpensTheMicrophone() async throws {
+        let recorder = FakeRecorder()
+        let access = GatedVoiceAccess()
+        let model = try await makeComposer(recorder: recorder, access: access)
+
+        let capture = Task { await model.start() }
+        await access.waitForSnapshot()
+        model.discard()
+        await access.releaseSnapshot()
+        await capture.value
+
+        _ = await recorder.waitFor(.cancel)
+        let lifecycle = await recorder.lifecycle
+        #expect(!lifecycle.contains(.start))
+        #expect(lifecycle.contains(.cancel))
+        let isRecording = await recorder.isRecording
+        #expect(isRecording == false)
+    }
+
+    /// The X during the realtime mint. The Discard's own
+    /// `cancelLiveSession()` runs before the session exists, so the
+    /// composer closes it again once the mint comes back, and the
+    /// microphone never opens for a sheet that is already gone.
+    @MainActor
+    @Test func closingDuringTheMintClosesTheSessionAndNeverOpensTheMicrophone() async throws {
+        let recorder = FakeRecorder()
+        let pipeline = GatedLivePipeline()
+        let model = try await makeComposer(recorder: recorder, pipeline: pipeline)
+
+        let capture = Task { await model.beginCapture() }
+        await pipeline.waitForMint()
+        model.discard()
+        await pipeline.releaseMint()
+        await capture.value
+
+        let lifecycle = await recorder.lifecycle
+        #expect(!lifecycle.contains(.start))
+        let isRecording = await recorder.isRecording
+        #expect(isRecording == false)
+
+        let afterMint = await pipeline.calls.drop(while: { $0 != .liveSessionStarted })
+        #expect(afterMint.contains(.cancelLiveSession))
     }
 
     /// A stop with nothing behind it. `RecordingController.stop()` answers
@@ -1297,6 +1473,57 @@ struct VoiceCaptureStartingTests {
         #expect(model.errorMessage == VoiceErrorCopy.recordingTooShortMessage)
         #expect(model.hasRetryableAudio == false)
         #expect(pipeline.processCalls == 0)
+    }
+
+    /// The floor is inclusive: half a second is enough, a millisecond less
+    /// is not. Pinned so the constant cannot drift without a test moving.
+    @MainActor
+    @Test func theShortestUsableRecordingIsExactlyHalfASecond() async throws {
+        func artifact(_ durationMS: Int) -> RecordingArtifact {
+            RecordingArtifact(
+                fileURL: URL(fileURLWithPath: "/tmp/relora-fake-\(durationMS).m4a"),
+                durationMS: durationMS,
+                mimeType: "audio/m4a",
+                stopReason: .manual
+            )
+        }
+
+        let accepted = SpyPipeline()
+        let long = try await makeComposer(recorder: FakeRecorder(artifact: artifact(500)), pipeline: accepted)
+        await long.beginCapture()
+        await long.stopCapture()
+        #expect(long.stage == .draft)
+        #expect(accepted.processCalls == 1)
+
+        let refused = SpyPipeline()
+        let short = try await makeComposer(recorder: FakeRecorder(artifact: artifact(499)), pipeline: refused)
+        await short.beginCapture()
+        await short.stopCapture()
+        #expect(short.stage == .error)
+        #expect(short.errorMessage == VoiceErrorCopy.recordingTooShortMessage)
+        #expect(refused.processCalls == 0)
+    }
+
+    /// The pipeline's own verdict on the file. Neither an empty file nor an
+    /// unreadable one gets a Retry: the bytes would be the same bytes, so
+    /// the card offers a fresh recording, as the too-short path does.
+    @MainActor
+    @Test func aFileThePipelineCannotUseIsNotOfferedForRetry() async throws {
+        let empty = SpyPipeline(error: BackendError(code: BackendError.localAudioEmpty, message: "", httpStatus: 0))
+        let emptyModel = try await makeComposer(recorder: FakeRecorder(), pipeline: empty)
+        await emptyModel.beginCapture()
+        await emptyModel.stopCapture()
+        #expect(emptyModel.stage == .error)
+        #expect(emptyModel.errorMessage == VoiceErrorCopy.recordingTooShortMessage)
+        #expect(emptyModel.hasRetryableAudio == false)
+
+        let unreadable = SpyPipeline(error: BackendError(code: BackendError.localAudioReadFailed, message: "", httpStatus: 0))
+        let unreadableModel = try await makeComposer(recorder: FakeRecorder(), pipeline: unreadable)
+        await unreadableModel.beginCapture()
+        await unreadableModel.stopCapture()
+        #expect(unreadableModel.stage == .error)
+        #expect(unreadableModel.errorCode == BackendError.localAudioReadFailed)
+        #expect(unreadableModel.hasRetryableAudio == false)
     }
 
     /// The four ways into the meter, and the one stage all of them land
