@@ -87,7 +87,6 @@ public enum VoiceErrorCopy {
     public static let recordingTooShortMessage =
         "That recording was too short. Try again and speak for a moment before you stop."
 
-
     /// The code to remember alongside the message, so the error card can ask
     /// "is this an auth failure?" later. Recorder failures carry
     /// `RECORD_PERMISSION_DENIED` or nothing — RN clears the code on a start

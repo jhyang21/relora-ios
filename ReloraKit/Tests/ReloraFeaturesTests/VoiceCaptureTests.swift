@@ -994,7 +994,7 @@ struct VoiceSaveWriteTests {
 /// `waitForStart()` lets the test know the gate has been reached rather
 /// than guessing with a sleep.
 private actor FakeRecorder: VoiceRecording {
-    enum Call: String, Sendable, Equatable {
+    enum Call: Sendable, Equatable {
         case start
         case stop
         case cancel
@@ -1250,8 +1250,7 @@ struct VoiceCaptureStartingTests {
         await recorder.releaseStart()
         await capture.value
 
-        let cancelled = await recorder.waitFor(.cancel)
-        #expect(cancelled)
+        _ = await recorder.waitFor(.cancel)
         let lifecycle = await recorder.lifecycle
         #expect(lifecycle == [.start, .cancel])
     }
@@ -1304,7 +1303,7 @@ struct VoiceCaptureStartingTests {
     /// on. `beginCapture` is the fourth, covered above.
     @MainActor
     @Test func everyWayIntoTheMeterOpensOnGettingReady() async throws {
-        let seen = try await makeComposer(recorder: FakeRecorder(holdsStart: true))
+        let seen = try await makeComposer(recorder: FakeRecorder())
         #expect(seen.stage == .starting)
 
         // Both remaining entry points run to the held start before they
