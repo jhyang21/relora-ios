@@ -153,8 +153,14 @@ public final class EdgeFunctionsClient: Sendable {
         idempotencyKey: String,
         onSlowProgress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> TranscribeResult {
-        guard let fileData = try? Data(contentsOf: fileURL), !fileData.isEmpty else {
+        guard let fileData = try? Data(contentsOf: fileURL) else {
             throw BackendError(code: BackendError.localAudioReadFailed, message: "Could not read local audio file", httpStatus: 0)
+        }
+        // A separate code from the read failure above, not a second reason
+        // for the same one. An empty file is a recording that ended too
+        // soon; an unreadable one is storage the app could not reach.
+        guard !fileData.isEmpty else {
+            throw BackendError(code: BackendError.localAudioEmpty, message: "Local audio file is empty", httpStatus: 0)
         }
         guard let normalized = AudioFormats.resolveSupportedUpload(fileName: fileURL.lastPathComponent, mimeType: mimeType) else {
             throw BackendError(code: BackendError.unsupportedMime, message: "Unsupported audio mime type", httpStatus: 0)
