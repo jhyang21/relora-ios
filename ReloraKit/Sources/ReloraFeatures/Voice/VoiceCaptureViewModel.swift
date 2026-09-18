@@ -14,7 +14,7 @@ import ReloraServices
 public struct VoiceCaptureEnvironment {
     public var database: AppDatabase
     public var identity: IdentityController
-    public var recorder: RecordingController
+    public var recorder: any VoiceRecording
     public var pipeline: any VoiceTranscriptionPipeline
     public var access: any VoiceAccessProviding
     public var isOnline: @MainActor () -> Bool
@@ -22,7 +22,7 @@ public struct VoiceCaptureEnvironment {
     public init(
         database: AppDatabase,
         identity: IdentityController,
-        recorder: RecordingController,
+        recorder: any VoiceRecording,
         pipeline: any VoiceTranscriptionPipeline,
         access: any VoiceAccessProviding,
         isOnline: @escaping @MainActor () -> Bool
@@ -146,6 +146,11 @@ public final class VoiceCaptureViewModel {
     @ObservationIgnored private var latestRMS: Float?
     @ObservationIgnored private var isStopping = false
 
+    /// Below this, an `.m4a` holds no audio at all — the encoder writes
+    /// its first packet a fraction of a second in, and a stop before that
+    /// leaves a header and nothing else.
+    @ObservationIgnored private static let shortestUsableRecordingMS = 500
+
     @ObservationIgnored private var levelTask: Task<Void, Never>?
     @ObservationIgnored private var tickTask: Task<Void, Never>?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
@@ -175,7 +180,7 @@ public final class VoiceCaptureViewModel {
         self.onSignIn = onSignIn
         self.onClose = onClose
         self.disclosure = disclosure
-        self.stage = VoiceDisclosureGate.decide(hasSeenDisclosure: seen) == .disclose ? .disclosure : .recording
+        self.stage = VoiceDisclosureGate.decide(hasSeenDisclosure: seen) == .disclose ? .disclosure : .starting
     }
 
     // MARK: - Lifecycle
@@ -195,13 +200,13 @@ public final class VoiceCaptureViewModel {
     ///
     /// The stage flips before the first `await`, so a second tap on Continue
     /// while the access snapshot is in flight fails the guard instead of
-    /// starting a second capture. `.recording` is what `init` picks for
+    /// starting a second capture. `.starting` is what `init` picks for
     /// anyone who has already seen the panel, so the gate runs against the
     /// same screen it always has.
     public func acknowledgeDisclosure() async {
         guard stage == .disclosure else { return }
         disclosure.writeSeen()
-        stage = .recording
+        stage = .starting
         await gateAndBeginCapture()
     }
 
@@ -250,7 +255,7 @@ public final class VoiceCaptureViewModel {
     /// starting a second capture.
     public func retryOffline() async {
         guard stage == .offline, environment.isOnline() else { return }
-        stage = .recording
+        stage = .starting
         await gateAndBeginCapture()
     }
 
@@ -298,7 +303,11 @@ public final class VoiceCaptureViewModel {
 
     public func beginCapture() async {
         stop()
-        stage = .recording
+        // `.starting`, not `.recording`: the quota snapshot, the realtime
+        // mint and the microphone permission dialog all happen below,
+        // before there is a recording to stop. Claiming otherwise is what
+        // put a live Stop button in front of App Review on 2026-09-18.
+        stage = .starting
         meter = VoiceMeter()
         elapsed = .zero
         latestRMS = nil
@@ -389,6 +398,12 @@ public final class VoiceCaptureViewModel {
 
         do {
             try await recorder.start(maxDuration: durationCap)
+            // The one place `.recording` is entered, and only once the
+            // microphone is actually open. Everything that reads
+            // `stage == .recording` — the Stop button above all — is
+            // reading "there is a recording to stop" and may not be told
+            // so a moment early.
+            stage = .recording
         } catch {
             fail(
                 message: VoiceErrorCopy.startFailureMessage(error),
@@ -428,13 +443,22 @@ public final class VoiceCaptureViewModel {
         }
     }
 
-    /// The user tapped Stop.
+    /// The user tapped Stop. Only reachable from `.recording`, which is
+    /// the point: the button itself is not on screen until the microphone
+    /// is open, and the silence auto-stop that also calls this runs off
+    /// ticks the recorder only emits once it is.
     public func stopCapture() async {
         guard stage == .recording, !isStopping else { return }
         isStopping = true
         meter.finish()
 
-        let artifact = await environment.recorder.stop()
+        guard let artifact = await environment.recorder.stop() else {
+            // Nothing was recorded — a start that threw, or one that never
+            // ran. There is no file, so the error card offers a fresh
+            // recording rather than a Retry over nothing.
+            fail(message: VoiceErrorCopy.noRecordingMessage, code: nil)
+            return
+        }
         await process(artifact)
     }
 
@@ -457,6 +481,14 @@ public final class VoiceCaptureViewModel {
     // MARK: - Processing
 
     private func process(_ artifact: RecordingArtifact) async {
+        guard artifact.durationMS >= Self.shortestUsableRecordingMS else {
+            // Too brief for the AAC encoder to have flushed a single
+            // packet, so the file on disk is empty and the upload would
+            // come back as a recording that could not be read. `audio` is
+            // left nil deliberately: there is nothing here worth retrying.
+            fail(message: VoiceErrorCopy.recordingTooShortMessage, code: nil)
+            return
+        }
         audio = artifact
         stage = .processing
         processingStatus = nil
@@ -759,7 +791,10 @@ public final class VoiceCaptureViewModel {
     /// with nothing in it closes silently, because a confirmation over an
     /// empty screen teaches people to dismiss confirmations.
     public var hasCaptureData: Bool {
-        if stage == .recording && !isStopping { return true }
+        // `.starting` counts: the microphone may already be open even
+        // though nothing has been recorded yet, and closing without asking
+        // would leave it that way.
+        if (stage == .recording || stage == .starting) && !isStopping { return true }
         if audio != nil { return true }
         if !transcript.trimmed.isEmpty { return true }
         if !reviewItems.isEmpty { return true }

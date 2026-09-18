@@ -12,6 +12,13 @@ public enum VoiceCaptureStage: String, Equatable, Sendable {
     /// network. Gated after the disclosure and the quota, before the
     /// microphone. No RN counterpart.
     case offline
+    /// A capture that is opening but has not opened: the quota snapshot,
+    /// the realtime mint, and the microphone permission dialog all happen
+    /// here. The meter is on screen and the X works, but there is nothing
+    /// to stop yet, so the Stop button is not. No RN counterpart — the
+    /// Expo client showed `'recording'` throughout this window, which is
+    /// the bug App Review hit on 2026-09-18.
+    case starting
     case recording
     case processing
     /// The review screen. RN's `'draft'`.
@@ -70,6 +77,7 @@ public enum VoiceCaptureCopy {
         case .processing: return "Polishing note"
         case .draft: return "Draft ready"
         case .error: return "Try again"
+        case .starting: return "Getting ready"
         case .recording:
             switch recording {
             case .finishing: return "Wrapping up"
@@ -91,7 +99,7 @@ public enum VoiceCaptureCopy {
         case .offline: return offlineTitle
         case .error: return "We could not finish that recording"
         case .processing: return "Turning that recording into a clean note"
-        case .recording, .draft: return "Speak like you normally would"
+        case .starting, .recording, .draft: return "Speak like you normally would"
         }
     }
 
