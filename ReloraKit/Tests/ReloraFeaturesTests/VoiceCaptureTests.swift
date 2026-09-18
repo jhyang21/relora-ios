@@ -1133,10 +1133,14 @@ private func makeComposer(
     recorder: FakeRecorder,
     pipeline: SpyPipeline = SpyPipeline(),
     hasSeenDisclosure: Bool = true,
-    online: OnlineSwitch = OnlineSwitch(true),
+    // Defaulted to nil rather than to a fresh switch: a default argument
+    // is evaluated outside the function's isolation, and `OnlineSwitch` is
+    // main-actor state.
+    online: OnlineSwitch? = nil,
     session: AuthSession? = nil,
     onClose: @escaping () -> Void = {}
 ) async throws -> VoiceCaptureViewModel {
+    let network = online ?? OnlineSwitch(true)
     let database = try AppDatabase.inMemory()
     if hasSeenDisclosure {
         VoiceDisclosureStorage(database: database).writeSeen()
@@ -1158,7 +1162,7 @@ private func makeComposer(
             recorder: recorder,
             pipeline: pipeline,
             access: StubVoiceAccess(),
-            isOnline: { online.isOnline }
+            isOnline: { network.isOnline }
         ),
         initialContactID: nil,
         toasts: ReloraToastCenter(),
