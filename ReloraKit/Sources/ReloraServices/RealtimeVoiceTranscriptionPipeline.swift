@@ -79,7 +79,7 @@ public final class RealtimeVoiceTranscriptionPipeline: LiveTranscribingVoicePipe
 
     // MARK: - Live session (pre-recording)
 
-    public func beginLiveSession(recorder: RecordingController) async -> LiveSessionStart {
+    public func beginLiveSession(recorder: any VoiceRecording) async -> LiveSessionStart {
         // A leftover session from a capture that never reached `process()`
         // (a failed `recorder.start`, an abandoned attempt) must be closed,
         // not just dropped — dropping the reference leaks the socket and
