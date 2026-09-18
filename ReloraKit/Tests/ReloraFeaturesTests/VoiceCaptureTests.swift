@@ -1307,18 +1307,24 @@ struct VoiceCaptureStartingTests {
         let seen = try await makeComposer(recorder: FakeRecorder(holdsStart: true))
         #expect(seen.stage == .starting)
 
-        let unseen = try await makeComposer(
-            recorder: FakeRecorder(holdsStart: true),
-            hasSeenDisclosure: false
-        )
+        // Both remaining entry points run to the held start before they
+        // are asked anything: a bare `Task { }` on this actor has not run
+        // at all by the next line, so `waitForStart()` is what makes the
+        // question meaningful rather than a race with the scheduler.
+        let unseenRecorder = FakeRecorder(holdsStart: true)
+        let unseen = try await makeComposer(recorder: unseenRecorder, hasSeenDisclosure: false)
         #expect(unseen.stage == .disclosure)
         let acknowledged = Task { await unseen.acknowledgeDisclosure() }
+        await unseenRecorder.waitForStart()
         #expect(unseen.stage == .starting)
-        acknowledged.cancel()
+        await unseenRecorder.releaseStart()
+        await acknowledged.value
+        #expect(unseen.stage == .recording)
 
         let online = OnlineSwitch(false)
+        let offlineRecorder = FakeRecorder(holdsStart: true)
         let blocked = try await makeComposer(
-            recorder: FakeRecorder(holdsStart: true),
+            recorder: offlineRecorder,
             online: online,
             session: AuthSession(
                 user: AuthUser(id: "acct-1", email: "ada@example.com", isAnonymous: false),
@@ -1331,8 +1337,11 @@ struct VoiceCaptureStartingTests {
 
         online.isOnline = true
         let retried = Task { await blocked.retryOffline() }
+        await offlineRecorder.waitForStart()
         #expect(blocked.stage == .starting)
-        retried.cancel()
+        await offlineRecorder.releaseStart()
+        await retried.value
+        #expect(blocked.stage == .recording)
     }
 
     /// Both exhaustive switches over `VoiceCaptureStage` answer for the
