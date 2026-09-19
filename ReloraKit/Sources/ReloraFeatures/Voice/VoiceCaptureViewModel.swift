@@ -583,12 +583,15 @@ public final class VoiceCaptureViewModel {
             onPaywall(VoiceQuotaGate.paywallReason(forServerCode: backend.code))
             return
         }
-        // Neither of these can be retried: the file on disk is what it is,
-        // and a Retry would read the same bytes to the same end. Cleared so
-        // the card offers a fresh recording instead, for the same reason
-        // `process()` leaves `audio` nil for a capture too short to hold
-        // anything.
-        if backend.code == BackendError.localAudioEmpty || backend.code == BackendError.localAudioReadFailed {
+        // None of these can be retried: the file on disk is what it is,
+        // and a Retry would read the same bytes to the same end — an
+        // empty file, an unreadable one, or one the server heard nothing
+        // in. Cleared so the card offers a fresh recording instead, for
+        // the same reason `process()` leaves `audio` nil for a capture too
+        // short to hold anything.
+        if backend.code == BackendError.localAudioEmpty
+            || backend.code == BackendError.localAudioReadFailed
+            || backend.code == BackendError.transcribeEmpty {
             audio = nil
         }
         fail(message: VoiceErrorCopy.message(for: backend.code), code: backend.code)

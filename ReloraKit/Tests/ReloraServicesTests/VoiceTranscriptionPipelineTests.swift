@@ -88,6 +88,8 @@ private struct StubTokenProvider: AccessTokenProvider {
 }
 
 private let transcribeBody = Data(#"{"transcript":"Coffee with Ada.","request_id":"req-1","deduped":false}"#.utf8)
+private let blankTranscribeBody = Data(#"{"transcript":"  ","request_id":"req-1","deduped":false}"#.utf8)
+private let transcribeEmptyBody = Data(#"{"error":"Transcription failed","code":"TRANSCRIBE_EMPTY"}"#.utf8)
 private let extractBody = Data(#"""
 {"subject_name_guess":{"text":"Ada","confidence":0.9},"memory_draft":{"text":"Coffee with Ada.","confidence":0.8},"key_things":[],"reminder_suggestion":null}
 """#.utf8)
@@ -298,5 +300,52 @@ struct BatchVoiceTranscriptionPipelineTests {
         } catch let error as BackendError {
             #expect(error.code == BackendError.authRequired)
         }
+    }
+
+    /// A silent note. The server refuses it at the transcribe stage and
+    /// extraction is never asked. Run as a guest, the harder of the two
+    /// identities: that fallback swallows `AUTH_REQUIRED` alone, so this
+    /// code has to reach the caller through it.
+    @Test func aSilentRecordingNeverReachesExtraction() async throws {
+        PipelineURLProtocol.reset()
+        PipelineURLProtocol.handler = { _ in .respond(status: 502, body: transcribeEmptyBody) }
+
+        let audio = try makeAudioFile()
+        defer { try? FileManager.default.removeItem(at: audio) }
+
+        do {
+            _ = try await makePipeline(budget: .seconds(30)).process(
+                recording: recording(audio),
+                allowLocalGuestFallback: true,
+                onProgress: { _ in }
+            )
+            Issue.record("Expected TRANSCRIBE_EMPTY to reach the caller")
+        } catch let error as BackendError {
+            #expect(error.code == BackendError.transcribeEmpty)
+        }
+        #expect(PipelineURLProtocol.requestedPaths == ["transcribe_audio"])
+    }
+
+    /// A server that says 200 and hands back nothing. The client refuses
+    /// it itself, with the same code, rather than sending an empty
+    /// transcript on to extraction.
+    @Test func anEmptyTranscriptFromTheServerNeverReachesExtraction() async throws {
+        PipelineURLProtocol.reset()
+        PipelineURLProtocol.handler = { _ in .respond(status: 200, body: blankTranscribeBody) }
+
+        let audio = try makeAudioFile()
+        defer { try? FileManager.default.removeItem(at: audio) }
+
+        do {
+            _ = try await makePipeline(budget: .seconds(30)).process(
+                recording: recording(audio),
+                allowLocalGuestFallback: false,
+                onProgress: { _ in }
+            )
+            Issue.record("Expected an empty transcript to be refused")
+        } catch let error as BackendError {
+            #expect(error.code == BackendError.transcribeEmpty)
+        }
+        #expect(PipelineURLProtocol.requestedPaths == ["transcribe_audio"])
     }
 }
