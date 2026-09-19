@@ -32,6 +32,8 @@ public enum VoiceErrorCopy {
             return "Could not finish processing that recording."
         case BackendError.localAudioReadFailed:
             return "Could not read that recording from local storage."
+        case BackendError.localAudioEmpty:
+            return recordingTooShortMessage
         case BackendError.transcribeUploadFailed:
             return "Could not upload that recording. Check your connection and try again."
         case BackendError.unsupportedMime:
@@ -69,8 +71,21 @@ public enum VoiceErrorCopy {
            recordingError == .permissionDenied {
             return message(for: BackendError.recordPermissionDenied)
         }
-        return "Could not start recording. Please try again."
+        return noRecordingMessage
     }
+
+    /// Said when the recorder produced nothing at all — a start that
+    /// failed, and a Stop that arrived before there was anything to stop.
+    /// One string for both because they are the same event to the person
+    /// holding the phone: the recording did not happen, try it again.
+    public static let noRecordingMessage = "Could not start recording. Please try again."
+
+    /// Said when a recording ended before the encoder wrote its first
+    /// packet. Names the fix rather than the cause: "local storage" would
+    /// be true of the file and useless to the reader, who only has to hold
+    /// the recording open a moment longer.
+    public static let recordingTooShortMessage =
+        "That recording was too short. Try again and speak for a moment before you stop."
 
     /// The code to remember alongside the message, so the error card can ask
     /// "is this an auth failure?" later. Recorder failures carry

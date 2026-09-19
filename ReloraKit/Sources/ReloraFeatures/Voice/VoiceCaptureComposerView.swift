@@ -106,9 +106,11 @@ public struct VoiceCaptureComposerView: View {
             // sheet cut its own text off.
             if stage == .draft || stage == .error || stage == .offline {
                 withReloraAnimation(.gentle) { detent = .large }
-            } else if stage == .recording {
+            } else if stage == .starting {
                 // Back down for the meter, so a recording that follows the
                 // offline panel gets the same half-height sheet as any other.
+                // Keyed off `.starting` rather than `.recording` because that
+                // is now the stage the meter first appears in.
                 withReloraAnimation(.gentle) { detent = .medium }
             }
         }
@@ -195,7 +197,7 @@ public struct VoiceCaptureComposerView: View {
                     // short vertical proposal is answered with an ellipsis.
                     .fixedSize(horizontal: false, vertical: true)
 
-                if model.stage == .recording {
+                if model.stage == .starting || model.stage == .recording {
                     Text(VoiceCaptureCopy.recordingSubtitle(isLiveTranscribing: model.isLiveTranscribing))
                         .font(ReloraFont.body)
                         .foregroundStyle(ReloraColor.mutedInk)
@@ -210,6 +212,10 @@ public struct VoiceCaptureComposerView: View {
                 }
             }
 
+            // `.recording` alone, never `.starting`. A Stop offered while
+            // the microphone is still opening is a Stop with nothing behind
+            // it — the whole of the 2026-09-18 rejection. The X in the
+            // header stays available throughout and cancels cleanly.
             if model.stage == .recording {
                 stopButton
             }

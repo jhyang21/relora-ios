@@ -53,3 +53,30 @@ struct RecordingArtifactValueTypeTests {
         #expect(reasons[0] != reasons[2])
     }
 }
+
+/// The half of the stop-before-start race that needs no audio hardware:
+/// what a controller that never started says when it is stopped or
+/// cancelled. Everything past that point — the tap, the AAC encoding, the
+/// permission dialog the race actually opened in — needs a real
+/// `AVAudioEngine` and `AVAudioSession`, so the ordering itself is covered
+/// at the composer level against a fake recorder (see
+/// `VoiceCaptureStartingTests`). `AudioSessionController` is a concrete
+/// actor with no protocol seam, so there is nothing to stub here.
+@Suite("RecordingController with nothing started")
+struct RecordingControllerIdleTests {
+
+    @Test("stop before any start returns nothing rather than a directory")
+    func stopBeforeStartReturnsNil() async {
+        let controller = RecordingController(sessionController: AudioSessionController())
+        let artifact = await controller.stop()
+        #expect(artifact == nil)
+    }
+
+    @Test("cancel before any start is a no-op, and a stop after it still returns nothing")
+    func cancelBeforeStartIsHarmless() async {
+        let controller = RecordingController(sessionController: AudioSessionController())
+        await controller.cancel()
+        let artifact = await controller.stop()
+        #expect(artifact == nil)
+    }
+}

@@ -31,6 +31,11 @@ public struct RecordingArtifact: Sendable, Equatable {
 public enum RecordingControllerError: Error, Sendable, Equatable {
     case permissionDenied
     case alreadyRecording
+    /// A second `start()` while the first has not finished opening the
+    /// microphone. Distinct from `alreadyRecording` because nothing is
+    /// recording yet — see `RecordingController.start`'s doc comment for
+    /// the window this covers.
+    case alreadyStarting
     case sessionActivationFailed(String)
     case fileCreationFailed(String)
     case converterCreationFailed
@@ -82,6 +87,18 @@ public enum RecordingEvent: Sendable {
 /// the tap needs — the file, the converters, the level continuation, the
 /// frame handler — so the tap closure never has to reach back into the
 /// actor at all.
+///
+/// ## Why an actor is not enough on its own
+///
+/// An actor serializes *statements*, not *operations*: every `await`
+/// inside `start()` is a point where another call can run on this actor,
+/// and `start()` has several — the microphone permission dialog above all,
+/// which on a first run is however long the user takes to read it. An
+/// unguarded `stop()` arriving in that window would find `isRecording`
+/// still false and report a recording that had never begun; App Review
+/// found exactly that on 2026-09-18. `startTask` below closes the window:
+/// `stop()` and `cancel()` wait for the start they can see in flight
+/// before they act on anything.
 public actor RecordingController {
     private let sessionController: AudioSessionController
     private let engine = AVAudioEngine()
@@ -101,6 +118,11 @@ public actor RecordingController {
     private var maxDurationTask: Task<Void, Never>?
     private var elapsedTickTask: Task<Void, Never>?
     private var sessionEventTask: Task<Void, Never>?
+
+    /// The start that is still opening the microphone, if there is one.
+    /// Held as a `Task` rather than a bare flag so `stop()` and `cancel()`
+    /// can *wait* for it rather than only notice it.
+    private var startTask: Task<Void, Error>?
 
     public init(sessionController: AudioSessionController) {
         self.sessionController = sessionController
@@ -137,9 +159,34 @@ public actor RecordingController {
 
     // MARK: - start / stop / cancel
 
+    /// Opens the microphone and begins writing the file.
+    ///
+    /// The work runs inside a `Task` this actor keeps hold of, rather than
+    /// straight down this function's body, for one reason: a caller that
+    /// is no longer interested — a Stop or a cancel that arrives while the
+    /// permission dialog is still up — has to be able to wait for the
+    /// start to finish before tearing it down. See the type's "Why an
+    /// actor is not enough on its own".
     public func start(maxDuration: Duration) async throws {
+        guard startTask == nil else { throw RecordingControllerError.alreadyStarting }
         guard !isRecording else { throw RecordingControllerError.alreadyRecording }
 
+        let task = Task { try await self.performStart(maxDuration: maxDuration) }
+        startTask = task
+        defer { startTask = nil }
+        try await task.value
+    }
+
+    /// Waits out an in-flight `start()`, if any, and swallows its failure —
+    /// a caller that is stopping or cancelling wants the microphone
+    /// settled, not the reason it would not open. `start()`'s own caller
+    /// still sees the error.
+    private func awaitPendingStart() async {
+        guard let startTask else { return }
+        _ = try? await startTask.value
+    }
+
+    private func performStart(maxDuration: Duration) async throws {
         guard await AudioSessionController.requestMicrophonePermission() else {
             throw RecordingControllerError.permissionDenied
         }
@@ -241,37 +288,55 @@ public actor RecordingController {
     /// (`.stoppedAtLimit` / `.interrupted`, surfaced first through
     /// `events()`), this just returns that cached result — safe to call
     /// even after an auto-stop the caller hasn't reacted to yet.
-    public func stop() async -> RecordingArtifact {
+    ///
+    /// Waits for a start that is still in flight, so a Stop tapped while
+    /// the permission dialog was up stops the recording that dialog was
+    /// about instead of racing past it.
+    ///
+    /// Returns nil when there is nothing to hand back: a start that threw,
+    /// or one that never happened. That is a distinct answer from "here is
+    /// a recording of no length" — the caller has no file to upload and
+    /// must not pretend otherwise.
+    public func stop() async -> RecordingArtifact? {
+        await awaitPendingStart()
         if let finishedArtifact {
             return finishedArtifact
         }
-        guard isRecording else {
-            return RecordingArtifact(
-                fileURL: fileURL ?? FileManager.default.temporaryDirectory,
-                durationMS: 0,
-                mimeType: "audio/m4a",
-                stopReason: .manual
-            )
-        }
+        guard isRecording else { return nil }
         return await teardown(reason: .manual)
     }
 
     /// Stops (if still running) and discards the file — used when the
     /// user backs out of a recording rather than confirming it.
+    ///
+    /// Waits out an in-flight start for the same reason `stop()` does, and
+    /// for one more: without the wait, a cancel mid-start was a no-op and
+    /// the microphone stayed open behind a closed sheet.
     public func cancel() async {
+        await awaitPendingStart()
         if let finishedArtifact {
             try? FileManager.default.removeItem(at: finishedArtifact.fileURL)
             self.finishedArtifact = nil
             return
         }
         guard isRecording else { return }
-        let artifact = await teardown(reason: .manual)
-        try? FileManager.default.removeItem(at: artifact.fileURL)
+        if let artifact = await teardown(reason: .manual) {
+            try? FileManager.default.removeItem(at: artifact.fileURL)
+        }
     }
 
     // MARK: - Teardown
 
-    private func teardown(reason: StopReason) async -> RecordingArtifact {
+    /// Shuts the engine and the session down and returns what was
+    /// recorded.
+    ///
+    /// Optional only for the impossible case: every caller guards on
+    /// `isRecording`, and `fileURL` is set in the same breath as
+    /// `isRecording` becomes true, so a nil here would mean the two had
+    /// drifted apart. It reports that rather than papering over it with a
+    /// path to a directory, which is what the old fallback did and what
+    /// reached App Review as "could not read that recording".
+    private func teardown(reason: StopReason) async -> RecordingArtifact? {
         maxDurationTask?.cancel()
         elapsedTickTask?.cancel()
         sessionEventTask?.cancel()
@@ -283,15 +348,17 @@ public actor RecordingController {
         engine.stop()
         await sessionController.deactivate()
 
-        let artifact = RecordingArtifact(
-            fileURL: fileURL ?? FileManager.default.temporaryDirectory,
-            durationMS: Self.durationMS(
-                framesWritten: tapSink?.totalFramesWritten ?? 0,
-                sampleRate: tapSink?.writeSampleRate ?? 1
-            ),
-            mimeType: "audio/m4a",
-            stopReason: reason
-        )
+        let artifact = fileURL.map { url in
+            RecordingArtifact(
+                fileURL: url,
+                durationMS: Self.durationMS(
+                    framesWritten: tapSink?.totalFramesWritten ?? 0,
+                    sampleRate: tapSink?.writeSampleRate ?? 1
+                ),
+                mimeType: "audio/m4a",
+                stopReason: reason
+            )
+        }
 
         tapSink = nil
         isRecording = false
@@ -311,7 +378,7 @@ public actor RecordingController {
 
     private func handleAutoStop() async {
         guard isRecording else { return }
-        let artifact = await teardown(reason: .stoppedAtLimit)
+        guard let artifact = await teardown(reason: .stoppedAtLimit) else { return }
         finishedArtifact = artifact
         eventContinuation?.yield(.autoStopped(artifact))
     }
@@ -335,7 +402,7 @@ public actor RecordingController {
     /// cleanly with the partial file preserved."
     private func handleInterruption() async {
         guard isRecording else { return }
-        let artifact = await teardown(reason: .interrupted)
+        guard let artifact = await teardown(reason: .interrupted) else { return }
         finishedArtifact = artifact
         eventContinuation?.yield(.interrupted(artifact))
     }

@@ -14,7 +14,7 @@ import ReloraServices
 public struct VoiceCaptureEnvironment {
     public var database: AppDatabase
     public var identity: IdentityController
-    public var recorder: RecordingController
+    public var recorder: any VoiceRecording
     public var pipeline: any VoiceTranscriptionPipeline
     public var access: any VoiceAccessProviding
     public var isOnline: @MainActor () -> Bool
@@ -22,7 +22,7 @@ public struct VoiceCaptureEnvironment {
     public init(
         database: AppDatabase,
         identity: IdentityController,
-        recorder: RecordingController,
+        recorder: any VoiceRecording,
         pipeline: any VoiceTranscriptionPipeline,
         access: any VoiceAccessProviding,
         isOnline: @escaping @MainActor () -> Bool
@@ -145,6 +145,20 @@ public final class VoiceCaptureViewModel {
     /// same as silence. See `VoiceMeter.tick`.
     @ObservationIgnored private var latestRMS: Float?
     @ObservationIgnored private var isStopping = false
+    /// Set by `close()` and never cleared: the sheet is going away, and
+    /// whatever `beginCapture` is still doing must not open the microphone
+    /// on its way out. `recorder.cancel()` only waits for a start it can
+    /// see in flight. A Discard that lands during the quota snapshot or
+    /// the realtime mint arrives before there is one, and without this
+    /// flag the `recorder.start()` that follows opens the microphone
+    /// behind a closed sheet and streams it to the realtime socket until
+    /// the duration cap.
+    @ObservationIgnored private var isClosing = false
+
+    /// Below this, an `.m4a` holds no audio at all — the encoder writes
+    /// its first packet a fraction of a second in, and a stop before that
+    /// leaves a header and nothing else.
+    @ObservationIgnored private static let shortestUsableRecordingMS = 500
 
     @ObservationIgnored private var levelTask: Task<Void, Never>?
     @ObservationIgnored private var tickTask: Task<Void, Never>?
@@ -175,7 +189,7 @@ public final class VoiceCaptureViewModel {
         self.onSignIn = onSignIn
         self.onClose = onClose
         self.disclosure = disclosure
-        self.stage = VoiceDisclosureGate.decide(hasSeenDisclosure: seen) == .disclose ? .disclosure : .recording
+        self.stage = VoiceDisclosureGate.decide(hasSeenDisclosure: seen) == .disclose ? .disclosure : .starting
     }
 
     // MARK: - Lifecycle
@@ -195,13 +209,13 @@ public final class VoiceCaptureViewModel {
     ///
     /// The stage flips before the first `await`, so a second tap on Continue
     /// while the access snapshot is in flight fails the guard instead of
-    /// starting a second capture. `.recording` is what `init` picks for
+    /// starting a second capture. `.starting` is what `init` picks for
     /// anyone who has already seen the panel, so the gate runs against the
     /// same screen it always has.
     public func acknowledgeDisclosure() async {
         guard stage == .disclosure else { return }
         disclosure.writeSeen()
-        stage = .recording
+        stage = .starting
         await gateAndBeginCapture()
     }
 
@@ -250,7 +264,7 @@ public final class VoiceCaptureViewModel {
     /// starting a second capture.
     public func retryOffline() async {
         guard stage == .offline, environment.isOnline() else { return }
-        stage = .recording
+        stage = .starting
         await gateAndBeginCapture()
     }
 
@@ -298,7 +312,15 @@ public final class VoiceCaptureViewModel {
 
     public func beginCapture() async {
         stop()
-        stage = .recording
+        // A Discard that landed during the quota snapshot has already
+        // closed the sheet. Nothing below, the mint least of all, may run
+        // on its behalf.
+        guard !isClosing else { return }
+        // `.starting`, not `.recording`: the quota snapshot, the realtime
+        // mint and the microphone permission dialog all happen below,
+        // before there is a recording to stop. Claiming otherwise is what
+        // put a live Stop button in front of App Review on 2026-09-18.
+        stage = .starting
         meter = VoiceMeter()
         elapsed = .zero
         latestRMS = nil
@@ -387,8 +409,35 @@ public final class VoiceCaptureViewModel {
             }
         }
 
+        // A Discard that landed during the mint above ran `recorder.cancel()`
+        // against nothing and closed a live session that may not have
+        // existed yet. Both are redone here, against what exists now, and
+        // the microphone stays shut.
+        guard !isClosing else {
+            stop()
+            await releaseRecorder()
+            return
+        }
+
         do {
             try await recorder.start(maxDuration: durationCap)
+            // The Discard may also have landed while `start()` was in
+            // flight. `cancel()` waited for it, but which of the two
+            // resumes first on the actor is the scheduler's call, so this
+            // start can return success after the teardown or before it.
+            // A second `cancel()` is a no-op in one order and the real
+            // teardown in the other.
+            guard !isClosing else {
+                stop()
+                await releaseRecorder()
+                return
+            }
+            // The one place `.recording` is entered, and only once the
+            // microphone is actually open. Everything that reads
+            // `stage == .recording` — the Stop button above all — is
+            // reading "there is a recording to stop" and may not be told
+            // so a moment early.
+            stage = .recording
         } catch {
             fail(
                 message: VoiceErrorCopy.startFailureMessage(error),
@@ -428,13 +477,22 @@ public final class VoiceCaptureViewModel {
         }
     }
 
-    /// The user tapped Stop.
+    /// The user tapped Stop. Only reachable from `.recording`, which is
+    /// the point: the button itself is not on screen until the microphone
+    /// is open, and the silence auto-stop that also calls this runs off
+    /// ticks the recorder only emits once it is.
     public func stopCapture() async {
         guard stage == .recording, !isStopping else { return }
         isStopping = true
         meter.finish()
 
-        let artifact = await environment.recorder.stop()
+        guard let artifact = await environment.recorder.stop() else {
+            // Nothing was recorded — a start that threw, or one that never
+            // ran. There is no file, so the error card offers a fresh
+            // recording rather than a Retry over nothing.
+            fail(message: VoiceErrorCopy.noRecordingMessage, code: nil)
+            return
+        }
         await process(artifact)
     }
 
@@ -457,6 +515,14 @@ public final class VoiceCaptureViewModel {
     // MARK: - Processing
 
     private func process(_ artifact: RecordingArtifact) async {
+        guard artifact.durationMS >= Self.shortestUsableRecordingMS else {
+            // Too brief for the AAC encoder to have flushed a single
+            // packet, so the file on disk is empty and the upload would
+            // come back as a recording that could not be read. `audio` is
+            // left nil deliberately: there is nothing here worth retrying.
+            fail(message: VoiceErrorCopy.recordingTooShortMessage, code: nil)
+            return
+        }
         audio = artifact
         stage = .processing
         processingStatus = nil
@@ -516,6 +582,14 @@ public final class VoiceCaptureViewModel {
         if backend.httpStatus == 402 {
             onPaywall(VoiceQuotaGate.paywallReason(forServerCode: backend.code))
             return
+        }
+        // Neither of these can be retried: the file on disk is what it is,
+        // and a Retry would read the same bytes to the same end. Cleared so
+        // the card offers a fresh recording instead, for the same reason
+        // `process()` leaves `audio` nil for a capture too short to hold
+        // anything.
+        if backend.code == BackendError.localAudioEmpty || backend.code == BackendError.localAudioReadFailed {
+            audio = nil
         }
         fail(message: VoiceErrorCopy.message(for: backend.code), code: backend.code)
     }
@@ -759,7 +833,10 @@ public final class VoiceCaptureViewModel {
     /// with nothing in it closes silently, because a confirmation over an
     /// empty screen teaches people to dismiss confirmations.
     public var hasCaptureData: Bool {
-        if stage == .recording && !isStopping { return true }
+        // `.starting` counts: the microphone may already be open even
+        // though nothing has been recorded yet, and closing without asking
+        // would leave it that way.
+        if (stage == .recording || stage == .starting) && !isStopping { return true }
         if audio != nil { return true }
         if !transcript.trimmed.isEmpty { return true }
         if !reviewItems.isEmpty { return true }
@@ -779,21 +856,29 @@ public final class VoiceCaptureViewModel {
     /// Discards the capture and closes. The audio file goes with it — this is
     /// the one exit that means "I do not want this recording".
     public func discard() {
-        let recorder = environment.recorder
-        let livePipeline = environment.pipeline as? any LiveTranscribingVoicePipeline
         stop()
-        Task {
-            await recorder.cancel()
-            // RN's `cancel()` closes the realtime client alongside the
-            // recorder (`voiceTranscriptionService.ts`); without this the
-            // socket and the recorder's PCM tap outlive the capture.
-            await recorder.setPCMFrameHandler(nil)
-            await livePipeline?.cancelLiveSession()
-        }
+        Task { await self.releaseRecorder() }
         close()
     }
 
+    /// Shuts the recorder and the live session, whatever state they are
+    /// in. Safe to run more than once: `cancel()` with nothing recording
+    /// is a no-op, and so is closing a session that is already closed.
+    /// `beginCapture` runs it a second time when a Discard landed while it
+    /// was still setting up, against whatever the setup had opened since.
+    private func releaseRecorder() async {
+        let recorder = environment.recorder
+        let livePipeline = environment.pipeline as? any LiveTranscribingVoicePipeline
+        await recorder.cancel()
+        // RN's `cancel()` closes the realtime client alongside the
+        // recorder (`voiceTranscriptionService.ts`); without this the
+        // socket and the recorder's PCM tap outlive the capture.
+        await recorder.setPCMFrameHandler(nil)
+        await livePipeline?.cancelLiveSession()
+    }
+
     private func close() {
+        isClosing = true
         stop()
         onClose()
     }

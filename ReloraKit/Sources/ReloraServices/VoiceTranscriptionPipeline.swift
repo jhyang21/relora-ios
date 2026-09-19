@@ -153,7 +153,7 @@ public protocol LiveTranscribingVoicePipeline: VoiceTranscriptionPipeline {
     /// fallback, not a second attempt the user sees.
     ///
     /// Call at most once per capture, before `recorder.start()`.
-    func beginLiveSession(recorder: RecordingController) async -> LiveSessionStart
+    func beginLiveSession(recorder: any VoiceRecording) async -> LiveSessionStart
 
     /// Tears down a live session that `process()` will never consume — a
     /// discarded capture, or a retry starting over. Closes the socket

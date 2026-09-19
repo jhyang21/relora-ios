@@ -98,6 +98,13 @@ extension BackendError {
     // (or instead of) any HTTP response — a bad local file, or the fetch
     // itself throwing. Kept distinct per call site to match RN's mapping.
     public static let localAudioReadFailed = "LOCAL_AUDIO_READ_FAILED"
+    /// The file was readable and held nothing. Split out from
+    /// `localAudioReadFailed` in 2.6.2: the two say different things to
+    /// the user — one is storage the app could not reach, the other is a
+    /// recording that ended before it captured anything — and merging them
+    /// sent "could not read that recording from local storage" to someone
+    /// whose storage was fine.
+    public static let localAudioEmpty = "LOCAL_AUDIO_EMPTY"
     public static let transcribeUploadFailed = "TRANSCRIBE_UPLOAD_FAILED"
     public static let realtimeSessionMintFailed = "REALTIME_SESSION_MINT_FAILED"
 
