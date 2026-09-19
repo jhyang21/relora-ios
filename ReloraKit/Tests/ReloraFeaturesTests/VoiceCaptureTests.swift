@@ -1526,6 +1526,20 @@ struct VoiceCaptureStartingTests {
         #expect(unreadableModel.hasRetryableAudio == false)
     }
 
+    /// A note the server heard nothing in. The card says so in plain words
+    /// and offers a fresh recording, not a Retry on the same silent bytes.
+    @MainActor
+    @Test func aSilentRecordingSaysNothingWasHeard() async throws {
+        let silent = SpyPipeline(error: BackendError(code: BackendError.transcribeEmpty, message: "", httpStatus: 502))
+        let model = try await makeComposer(recorder: FakeRecorder(), pipeline: silent)
+        await model.beginCapture()
+        await model.stopCapture()
+        #expect(model.stage == .error)
+        #expect(model.errorMessage == VoiceErrorCopy.nothingHeardMessage)
+        #expect(model.errorCode == BackendError.transcribeEmpty)
+        #expect(model.hasRetryableAudio == false)
+    }
+
     /// The four ways into the meter, and the one stage all of them land
     /// on. `beginCapture` is the fourth, covered above.
     @MainActor
@@ -1586,6 +1600,8 @@ struct VoiceCaptureStartingTests {
                 == "That recording was too short. Try again and speak for a moment before you stop."
         )
         #expect(VoiceErrorCopy.message(for: BackendError.localAudioEmpty) == VoiceErrorCopy.recordingTooShortMessage)
+        #expect(VoiceErrorCopy.nothingHeardMessage == "We did not hear anything. Try again.")
+        #expect(VoiceErrorCopy.message(for: BackendError.transcribeEmpty) == VoiceErrorCopy.nothingHeardMessage)
         #expect(
             VoiceErrorCopy.message(for: BackendError.localAudioReadFailed)
                 == "Could not read that recording from local storage."

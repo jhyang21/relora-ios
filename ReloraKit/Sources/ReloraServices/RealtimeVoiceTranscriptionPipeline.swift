@@ -24,7 +24,9 @@ import ReloraCore
 ///    failed before recording started), or the socket dropped mid-capture
 ///    (an `.error` event arrived on the live stream);
 /// 2. `RealtimeTranscriber.finish()` returned `nil` or an empty string —
-///    the session connected but nothing usable came out of it;
+///    the session connected but nothing usable came out of it. Batch is
+///    what tells silence from a socket that dropped words the file still
+///    holds; real silence ends on `TRANSCRIBE_EMPTY` from that leg;
 /// 3. `extractFromTranscript` threw AND the session carried no id (any
 ///    error except `CancellationError`, which propagates so a
 ///    user-cancelled capture does not silently start a second network

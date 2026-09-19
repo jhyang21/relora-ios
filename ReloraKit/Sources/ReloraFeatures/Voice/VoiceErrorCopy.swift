@@ -34,6 +34,8 @@ public enum VoiceErrorCopy {
             return "Could not read that recording from local storage."
         case BackendError.localAudioEmpty:
             return recordingTooShortMessage
+        case BackendError.transcribeEmpty:
+            return nothingHeardMessage
         case BackendError.transcribeUploadFailed:
             return "Could not upload that recording. Check your connection and try again."
         case BackendError.unsupportedMime:
@@ -86,6 +88,12 @@ public enum VoiceErrorCopy {
     /// the recording open a moment longer.
     public static let recordingTooShortMessage =
         "That recording was too short. Try again and speak for a moment before you stop."
+
+    /// Said when the recording reached the server and came back with no
+    /// words. A reviewer who taps the mic and Stop without speaking lands
+    /// here; "could not transcribe" would tell them the app is broken when
+    /// nothing was said.
+    public static let nothingHeardMessage = "We did not hear anything. Try again."
 
     /// The code to remember alongside the message, so the error card can ask
     /// "is this an auth failure?" later. Recorder failures carry

@@ -258,6 +258,20 @@ public final class BatchVoiceTranscriptionPipeline: VoiceTranscriptionPipeline {
                     )
                 }
 
+                // The server already refuses silence with this code. The
+                // guard is for a server that answers 200 with nothing, so
+                // extraction is never asked to make a memory out of an
+                // empty string — `extract_from_transcript` would answer
+                // 400 or 404 for it, and the card would blame the wrong
+                // stage.
+                guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw BackendError(
+                        code: BackendError.transcribeEmpty,
+                        message: "Transcription returned no words.",
+                        httpStatus: 0
+                    )
+                }
+
                 stage.advanceToExtract()
                 onProgress(.stage(.extract))
 
