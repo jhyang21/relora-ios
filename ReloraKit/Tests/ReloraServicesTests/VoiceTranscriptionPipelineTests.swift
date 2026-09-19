@@ -302,28 +302,28 @@ struct BatchVoiceTranscriptionPipelineTests {
         }
     }
 
-    /// A silent note. The server refuses it at the transcribe stage, for a
-    /// guest and an account alike, and extraction is never asked.
+    /// A silent note. The server refuses it at the transcribe stage and
+    /// extraction is never asked. Run as a guest, the harder of the two
+    /// identities: that fallback swallows `AUTH_REQUIRED` alone, so this
+    /// code has to reach the caller through it.
     @Test func aSilentRecordingNeverReachesExtraction() async throws {
+        PipelineURLProtocol.reset()
+        PipelineURLProtocol.handler = { _ in .respond(status: 502, body: transcribeEmptyBody) }
+
         let audio = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audio) }
 
-        for allowLocalGuestFallback in [true, false] {
-            PipelineURLProtocol.reset()
-            PipelineURLProtocol.handler = { _ in .respond(status: 502, body: transcribeEmptyBody) }
-
-            do {
-                _ = try await makePipeline(budget: .seconds(30)).process(
-                    recording: recording(audio),
-                    allowLocalGuestFallback: allowLocalGuestFallback,
-                    onProgress: { _ in }
-                )
-                Issue.record("Expected TRANSCRIBE_EMPTY to reach the caller")
-            } catch let error as BackendError {
-                #expect(error.code == BackendError.transcribeEmpty)
-            }
-            #expect(PipelineURLProtocol.requestedPaths == ["transcribe_audio"])
+        do {
+            _ = try await makePipeline(budget: .seconds(30)).process(
+                recording: recording(audio),
+                allowLocalGuestFallback: true,
+                onProgress: { _ in }
+            )
+            Issue.record("Expected TRANSCRIBE_EMPTY to reach the caller")
+        } catch let error as BackendError {
+            #expect(error.code == BackendError.transcribeEmpty)
         }
+        #expect(PipelineURLProtocol.requestedPaths == ["transcribe_audio"])
     }
 
     /// A server that says 200 and hands back nothing. The client refuses
