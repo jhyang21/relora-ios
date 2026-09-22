@@ -195,20 +195,22 @@ public enum SettingsPlanCopy {
 /// is locale- and OS-dependent — the copy tests assert an exact string,
 /// which a formatter call inside this function would not let them do.
 public enum SettingsVoiceCopy {
-    /// The two claims the Voice footer makes about audio, hoisted out of
-    /// `SettingsView` so the first-recording disclosure can repeat them
-    /// word for word instead of writing its own paraphrase. One place to
-    /// change, and one place a copy test can pin.
+    /// The Voice footer's claims about audio, hoisted out of `SettingsView`
+    /// so a copy test can pin them in one place.
     public static let recordingsStayOnDevice = "Recordings always stay on this iPhone for replay."
-    /// The device streams the audio to a third-party transcription
-    /// service, not to Relora's own servers. The sentence names no vendor -
-    /// that is the privacy policy's job, and the App Privacy labels' - but
-    /// it must not claim a route the app does not take.
-    public static let audioIsNotKept = "Your audio is sent securely to a transcription service that does not keep it."
+    /// Names the vendor on purpose: App Review (5.1.1, 5.1.2) requires the
+    /// app to say which third party gets the audio. Makes no retention
+    /// claim, only the training one OpenAI's API terms support.
+    public static let audioGoesToOpenAI =
+        "Voice notes are sent to OpenAI for transcription and note extraction. OpenAI does not use them to train its models."
+    /// Explains the Send Voice Notes to OpenAI toggle.
+    public static let withdrawConsent =
+        "Turn off sending to OpenAI to be asked again before the next recording."
 
-    /// The Voice section's footer, byte-identical to the literal it
-    /// replaces in `SettingsView`.
-    public static let footer = "Keeps the text of each voice note. \(recordingsStayOnDevice) \(audioIsNotKept)"
+    /// The Voice section's footer. The first sentence explains Save
+    /// Transcripts, the last the OpenAI toggle.
+    public static let footer =
+        "Keeps the text of each voice note. \(recordingsStayOnDevice) \(audioGoesToOpenAI) \(withdrawConsent)"
 
     public static func recordingsValue(count: Int, formattedSize: String) -> String {
         guard count > 0 else { return "None" }

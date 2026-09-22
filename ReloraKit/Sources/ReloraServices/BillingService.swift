@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ReloraCore
+import StoreKit
 
 // MARK: - Configuration
 
@@ -64,6 +65,30 @@ public enum BillingConfigLoader {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "replace-me" else { return nil }
         return trimmed
+    }
+}
+
+/// How long `BillingService` waits on the App Store before it gives up on
+/// a call. Only the two fetches that fill the paywall have a deadline:
+/// a purchase or restore never does, because a timer must never report a
+/// purchase as failed while StoreKit may still complete it.
+public struct BillingTimeouts: Sendable, Equatable {
+    /// The product lookup. Passing it counts as a failed lookup.
+    public var products: Duration
+    /// The trial eligibility check. Passing it means "no answer" (`[:]`).
+    public var eligibility: Duration
+    /// The storefront country read for diagnostics. Passing it records
+    /// "unknown".
+    public var storefront: Duration
+
+    public init(
+        products: Duration = .seconds(15),
+        eligibility: Duration = .seconds(8),
+        storefront: Duration = .seconds(2)
+    ) {
+        self.products = products
+        self.eligibility = eligibility
+        self.storefront = storefront
     }
 }
 
@@ -161,23 +186,46 @@ public final class BillingService: Sendable {
     /// `purchaseCatalog` is empty in.
     public private(set) var trialEligibility: [QuotaPolicy.PlanID: PurchasesIntroEligibility] = [:]
     /// False when the last `getProducts` call for an account identity came
-    /// back empty — mirrors `loadPurchaseCatalog`'s "unavailable catalog"
-    /// state, which `PaywallScreen` shows as a notice instead of prices.
-    /// Starts `true` so a screen rendered before the first refresh doesn't
-    /// show that notice prematurely.
+    /// back empty or failed — mirrors `loadPurchaseCatalog`'s "unavailable
+    /// catalog" state, which `PaywallScreen` shows as a notice instead of
+    /// prices. Starts `true` so a screen rendered before the first refresh
+    /// doesn't show that notice prematurely.
     public private(set) var isCatalogAvailable: Bool = true
+    /// True once the first product lookup for the current account has
+    /// answered, with products or with a failure. Until then the paywall
+    /// says "Loading price…" rather than "Price unavailable". False again
+    /// after every reset.
+    public private(set) var catalogLoaded: Bool = false
 
     private let purchases: any PurchasesProviding
     private let config: BillingConfig?
+    private let timeouts: BillingTimeouts
+    private let storefrontCountry: @Sendable () async -> String?
     /// The account id currently logged in to RevenueCat, if any. Distinct
     /// from `IdentityController.identity` — this class deliberately does
     /// not hold a reference to that controller, only to the `Identity`
     /// values `handleIdentityChange` is handed.
     private var loggedInUserID: String?
+    /// The last diagnostics write still in flight. Each new write waits for
+    /// this one, so writes land in order; tests await it through
+    /// `waitForDiagnostics()`.
+    private var diagnosticsTask: Task<Void, Never>?
 
-    public init(purchases: any PurchasesProviding, config: BillingConfig?) {
+    /// - Parameters:
+    ///   - timeouts: deadlines for the product and eligibility fetches.
+    ///     Tests pass short ones.
+    ///   - storefrontCountry: the App Store country code for diagnostics.
+    ///     Tests pass a constant; StoreKit has no storefront there.
+    public init(
+        purchases: any PurchasesProviding,
+        config: BillingConfig?,
+        timeouts: BillingTimeouts = BillingTimeouts(),
+        storefrontCountry: @escaping @Sendable () async -> String? = { await StoreKit.Storefront.current?.countryCode }
+    ) {
         self.purchases = purchases
         self.config = config
+        self.timeouts = timeouts
+        self.storefrontCountry = storefrontCountry
     }
 
     /// Call from `IdentityController.onIdentityApplied`. Mirrors
@@ -202,19 +250,36 @@ public final class BillingService: Sendable {
         try? await purchases.logIn(appUserID: userID)
         loggedInUserID = userID
 
+        // All three start together, but each is published as it lands:
+        // prices first, so a slow eligibility check (or a slow customer
+        // record) never holds the paywall on "Loading price…".
         let productIDs = [config.plusProductID, config.proProductID]
+        async let productsResult = Self.fetchProducts(purchases, productIDs: productIDs, timeout: timeouts.products)
         async let infoResult: PurchasesCustomerInfo? = try? purchases.customerInfo()
-        async let products = purchases.products(identifiers: productIDs)
-        async let eligibility = purchases.introEligibility(productIDs: productIDs)
+        async let eligibility = Self.fetchEligibility(purchases, productIDs: productIDs, timeout: timeouts.eligibility)
+
+        publishCatalog(await productsResult, config: config)
 
         let info = await infoResult
-        let fetchedProducts = await products
-        let fetchedEligibility = await eligibility
-
         subscriptionSnapshot = info.map { Self.mapSnapshot($0, config: config) } ?? .free
-        purchaseCatalog = Self.buildCatalog(fetchedProducts, config: config)
-        trialEligibility = Self.buildEligibility(fetchedEligibility, catalog: purchaseCatalog)
-        isCatalogAvailable = !fetchedProducts.isEmpty
+
+        trialEligibility = Self.buildEligibility(await eligibility, catalog: purchaseCatalog)
+    }
+
+    /// Runs the product lookup again, for the paywall's "Try again". Then
+    /// asks eligibility again for whatever came back, so a retried Pro card
+    /// does not promise a trial this Apple ID has already used. No-op
+    /// without an account session.
+    public func refreshCatalog() async {
+        guard let config, loggedInUserID != nil else { return }
+        let productIDs = [config.plusProductID, config.proProductID]
+        publishCatalog(
+            await Self.fetchProducts(purchases, productIDs: productIDs, timeout: timeouts.products),
+            config: config
+        )
+        guard !purchaseCatalog.isEmpty else { return }
+        let eligibility = await Self.fetchEligibility(purchases, productIDs: productIDs, timeout: timeouts.eligibility)
+        trialEligibility = Self.buildEligibility(eligibility, catalog: purchaseCatalog)
     }
 
     /// Mirrors `purchaseSelectedPlan`.
@@ -232,7 +297,13 @@ public final class BillingService: Sendable {
                 return .success(snapshot)
             }
         } catch {
-            return .failed(String(describing: error))
+            let stage = Self.purchaseStage(for: error)
+            recordDiagnostics([
+                DiagnosticsKey.stage: stage,
+                DiagnosticsKey.error: Self.describe(error),
+                DiagnosticsKey.product: productID,
+            ])
+            return .failed(Self.failureMessage(stage: stage))
         }
     }
 
@@ -246,7 +317,11 @@ public final class BillingService: Sendable {
             subscriptionSnapshot = snapshot
             return snapshot.planID == .free ? .noPurchasesFound : .restored(snapshot)
         } catch {
-            return .failed(String(describing: error))
+            recordDiagnostics([
+                DiagnosticsKey.stage: DiagnosticsStage.restore,
+                DiagnosticsKey.error: Self.describe(error),
+            ])
+            return .failed(Self.failureMessage(stage: DiagnosticsStage.restore))
         }
     }
 
@@ -255,7 +330,162 @@ public final class BillingService: Sendable {
         purchaseCatalog = [:]
         trialEligibility = [:]
         isCatalogAvailable = true
+        catalogLoaded = false
         loggedInUserID = nil
+    }
+
+    // MARK: - Catalog
+
+    /// Publishes one product lookup's answer. A thrown lookup (or one
+    /// past its deadline) empties the catalog like an empty answer does,
+    /// and both are recorded.
+    private func publishCatalog(_ result: Result<[PurchasesProduct], any Error>, config: BillingConfig) {
+        switch result {
+        case .success(let products):
+            purchaseCatalog = Self.buildCatalog(products, config: config)
+            isCatalogAvailable = !products.isEmpty
+            recordDiagnostics([
+                DiagnosticsKey.catalog: "\(products.count) products",
+            ])
+        case .failure(let error):
+            purchaseCatalog = [:]
+            trialEligibility = [:]
+            isCatalogAvailable = false
+            let description = Self.describe(error)
+            recordDiagnostics([
+                DiagnosticsKey.stage: DiagnosticsStage.catalog,
+                DiagnosticsKey.error: description,
+                DiagnosticsKey.catalog: description,
+            ])
+        }
+        catalogLoaded = true
+    }
+
+    /// The product lookup as a `Result`, so a failure can be published
+    /// next to the other two fetches instead of aborting them.
+    private nonisolated static func fetchProducts(
+        _ purchases: any PurchasesProviding,
+        productIDs: [String],
+        timeout: Duration
+    ) async -> Result<[PurchasesProduct], any Error> {
+        do {
+            let products = try await withTimeout(timeout) {
+                try await purchases.products(identifiers: productIDs)
+            }
+            return .success(products)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Eligibility, or no answer at all (`[:]`) once `timeout` passes.
+    /// No answer reads as `.unknown` per product; see `buildEligibility`.
+    private nonisolated static func fetchEligibility(
+        _ purchases: any PurchasesProviding,
+        productIDs: [String],
+        timeout: Duration
+    ) async -> [String: PurchasesIntroEligibility] {
+        let answer = try? await withTimeout(timeout) {
+            await purchases.introEligibility(productIDs: productIDs)
+        }
+        return answer ?? [:]
+    }
+
+    // MARK: - Diagnostics
+
+    /// RevenueCat customer attribute keys. Values are plain strings: never
+    /// receipts, tokens or anything personal.
+    enum DiagnosticsKey {
+        static let stage = "relora_billing_stage"
+        static let error = "relora_billing_error"
+        static let product = "relora_billing_product"
+        static let catalog = "relora_billing_catalog"
+        static let at = "relora_billing_at"
+        static let build = "relora_build"
+        static let storefront = "relora_storefront"
+    }
+
+    /// Where a billing call failed. Also the short reference the paywall
+    /// shows, so a screenshot from a user or a reviewer names the stage.
+    enum DiagnosticsStage {
+        static let catalog = "catalog"
+        static let lookup = "lookup"
+        static let purchase = "purchase"
+        static let restore = "restore"
+    }
+
+    /// Stamps `attributes` with the time, build and storefront and hands
+    /// them to RevenueCat in a task of its own: the caller never waits,
+    /// so recording can neither delay nor fail the purchase it describes.
+    private func recordDiagnostics(_ attributes: [String: String]) {
+        let purchases = self.purchases
+        let storefrontCountry = self.storefrontCountry
+        let storefrontTimeout = timeouts.storefront
+        let at = ISO8601DateFormatter().string(from: Date())
+        let previous = diagnosticsTask
+        diagnosticsTask = Task {
+            await previous?.value
+            let storefront = try? await withTimeout(storefrontTimeout) { await storefrontCountry() }
+            var stamped = attributes
+            stamped[DiagnosticsKey.at] = at
+            stamped[DiagnosticsKey.build] = Self.buildDescription
+            stamped[DiagnosticsKey.storefront] = storefront ?? "unknown"
+            await purchases.recordDiagnostics(stamped)
+        }
+    }
+
+    /// Waits until every diagnostics write started so far has been handed
+    /// to `PurchasesProviding`. For tests.
+    func waitForDiagnostics() async {
+        await diagnosticsTask?.value
+    }
+
+    /// `"<version> (<build>)"` from the app bundle, e.g. `"2.6.3 (17)"`.
+    private nonisolated static var buildDescription: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = info?["CFBundleVersion"] as? String ?? "unknown"
+        return "\(version) (\(build))"
+    }
+
+    /// A product that could not be found or looked up failed before
+    /// StoreKit was ever asked to sell it; anything else failed in the
+    /// purchase itself.
+    private static func purchaseStage(for error: any Error) -> String {
+        guard let providerError = error as? PurchasesProviderError else {
+            return DiagnosticsStage.purchase
+        }
+        switch providerError {
+        case .productNotFound, .productLookupFailed:
+            return DiagnosticsStage.lookup
+        case .underlying:
+            return DiagnosticsStage.purchase
+        }
+    }
+
+    /// The string recorded as `relora_billing_error`. The adapter's own
+    /// errors already carry `"<domain>#<code>: <description>"`.
+    private static func describe(_ error: any Error) -> String {
+        if let providerError = error as? PurchasesProviderError {
+            switch providerError {
+            case .productNotFound(let productID):
+                return "productNotFound: \(productID)"
+            case .productLookupFailed(let description), .underlying(let description):
+                return description
+            }
+        }
+        if error is AsyncTimeoutError {
+            return "timeout"
+        }
+        let nsError = error as NSError
+        return "\(nsError.domain)#\(nsError.code): \(nsError.localizedDescription)"
+    }
+
+    /// What a failed purchase or restore tells the person: plain words,
+    /// plus the stage as a reference. The raw error goes to diagnostics,
+    /// not to the screen.
+    static func failureMessage(stage: String) -> String {
+        "We couldn't complete this with the App Store. Try again. (ref: \(stage))"
     }
 
     /// Mirrors `resetBillingState` plus `clearPurchasesAccount`'s

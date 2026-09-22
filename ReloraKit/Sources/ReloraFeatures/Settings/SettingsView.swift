@@ -87,6 +87,10 @@ public struct SettingsView: View {
                 }
             }
         }
+        // Settings is itself a sheet over RootView, so the root toast
+        // layer draws under it. This one shows Restore Purchases and the
+        // other row toasts on top. No floating action row here to clear.
+        .reloraToastLayer(toasts, clearance: ReloraFloatingLayout.toastGap)
         .task { await viewModel.load() }
         .alert("Notifications Are Off", isPresented: $viewModel.showNotificationPermissionAlert) {
             Button("Open Settings") {
@@ -266,6 +270,10 @@ public struct SettingsView: View {
                 .font(ReloraFont.listBody)
                 .tint(ReloraColor.accent)
 
+            Toggle("Send Voice Notes to OpenAI", isOn: sendVoiceToOpenAIBinding)
+                .font(ReloraFont.listBody)
+                .tint(ReloraColor.accent)
+
             LabeledContent {
                 Text(viewModel.recordingsValue)
                     .font(ReloraFont.listBody)
@@ -296,6 +304,13 @@ public struct SettingsView: View {
         Binding(
             get: { viewModel.saveVoiceTranscriptsEnabled },
             set: { value in Task { await viewModel.toggleSaveVoiceTranscripts(value) } }
+        )
+    }
+
+    private var sendVoiceToOpenAIBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.sendVoiceToOpenAIEnabled },
+            set: { value in viewModel.toggleSendVoiceToOpenAI(value) }
         )
     }
 

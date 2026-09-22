@@ -10,8 +10,9 @@ import ReloraServices
 /// storefront in another currency, a price change in App Store Connect, or
 /// an Apple ID that has already spent the free trial each make a hardcoded
 /// line a lie. So the lines are computed from the live `PurchasesProduct`
-/// and StoreKit's own eligibility answer; `fallbackPrice` is the static
-/// price a card shows before the catalog loads, or when it fails to.
+/// and StoreKit's own eligibility answer. With no live price there is no
+/// price to quote at all: the card says why (`MissingPrice`) and
+/// `hasLivePrice` is false, which is what disables its button.
 ///
 /// Pure and free of SwiftUI on purpose: this is the part with rules in it,
 /// and `PaywallPricingTests` asserts every branch without a screen.
@@ -20,12 +21,34 @@ enum PaywallPricing {
         var price: String
         var renewal: String
         var cta: String
+        /// False when `price` is a placeholder rather than the storefront's
+        /// price. A card with no live price must not sell anything.
+        var hasLivePrice: Bool = true
+    }
+
+    /// Why a card has no live price to quote.
+    enum MissingPrice: Equatable {
+        /// The first product lookup has not answered yet.
+        case loading
+        /// The lookup answered without this product, or failed.
+        case unavailable
+        /// A guest: the catalog loads only for an account, and choosing a
+        /// plan opens sign-in first.
+        case afterSignIn
+
+        var text: String {
+            switch self {
+            case .loading: return "Loading price…"
+            case .unavailable: return "Price unavailable"
+            case .afterSignIn: return "Price shown after you sign in"
+            }
+        }
     }
 
     /// - Parameters:
-    ///   - product: the live catalog entry, or `nil` before the catalog
-    ///     loads. `nil` falls back to `fallbackPrice` and a monthly period,
-    ///     which is what both plans actually bill at.
+    ///   - product: the live catalog entry, or `nil` when there is none.
+    ///     `nil`, or a blank storefront price, gives placeholder lines
+    ///     worded by `missingPrice`.
     ///   - eligibility: StoreKit's answer for this product. `nil` and
     ///     `.unknown` both count as eligible — the check not having landed
     ///     is not evidence the buyer has used the trial, and hiding an
@@ -34,20 +57,19 @@ enum PaywallPricing {
         planID: QuotaPolicy.PlanID,
         product: PurchasesProduct?,
         eligibility: PurchasesIntroEligibility?,
-        fallbackPrice: String
+        missingPrice: MissingPrice = .unavailable
     ) -> Lines {
-        let price = displayPrice(product: product, fallbackPrice: fallbackPrice)
-        let period = periodText(product?.subscriptionPeriod)
+        guard let product, let price = livePrice(product) else {
+            return placeholderLines(planID: planID, missingPrice: missingPrice)
+        }
+        let period = periodText(product.subscriptionPeriod)
         let perPeriod = "\(price)/\(period)"
 
         guard planID == .pro, let trial = eligibleFreeTrial(product: product, eligibility: eligibility) else {
             return Lines(
                 price: perPeriod,
                 renewal: "Renews automatically at \(perPeriod) until canceled.",
-                // `.free` is not a purchasable card — `paywallPlans` lists
-                // Plus and Pro only — so it shares Plus's wording rather
-                // than earning a branch of its own.
-                cta: planID == .pro ? "Subscribe to Pro" : "Choose Plus"
+                cta: plainCTA(planID)
             )
         }
 
@@ -60,12 +82,30 @@ enum PaywallPricing {
 
     // MARK: - Pieces
 
-    /// The storefront's own price string, or the fallback when there is no
-    /// product yet or it came back blank.
-    private static func displayPrice(product: PurchasesProduct?, fallbackPrice: String) -> String {
-        guard let product else { return fallbackPrice }
+    /// Lines for a card with no live price. No amount is quoted: a static
+    /// one is wrong in every other storefront. Monthly is what both plans
+    /// bill at, so the renewal sentence can still say that much.
+    private static func placeholderLines(planID: QuotaPolicy.PlanID, missingPrice: MissingPrice) -> Lines {
+        Lines(
+            price: missingPrice.text,
+            renewal: "Renews automatically every month until canceled.",
+            cta: plainCTA(planID),
+            hasLivePrice: false
+        )
+    }
+
+    /// `.free` is not a purchasable card — `paywallPlans` lists Plus and
+    /// Pro only — so it shares Plus's wording rather than earning a branch
+    /// of its own.
+    private static func plainCTA(_ planID: QuotaPolicy.PlanID) -> String {
+        planID == .pro ? "Subscribe to Pro" : "Choose Plus"
+    }
+
+    /// The storefront's own price string, trimmed, or `nil` when it came
+    /// back blank.
+    private static func livePrice(_ product: PurchasesProduct) -> String? {
         let trimmed = product.localizedPriceString.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? fallbackPrice : trimmed
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// What follows the slash in "$19.99/month". A period of more than one

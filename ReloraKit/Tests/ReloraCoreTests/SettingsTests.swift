@@ -58,13 +58,15 @@ struct SettingsTests {
         #expect(AppSettingsKey.localAnonymousUserID.rawValue == "local_anonymous_user_id")
     }
 
-    /// Separate from the test above because this key mirrors nothing: the
-    /// Expo client never showed the disclosure. The string is still pinned
-    /// — renaming it would silently re-show the panel to every user who
-    /// has already acknowledged it.
-    @Test("the voice disclosure key string is stable across releases")
-    func voiceDisclosureKeyStringIsStable() {
+    /// Separate from the test above because these keys mirror nothing: the
+    /// Expo client never showed the disclosure. The strings are still
+    /// pinned. Renaming the version key would silently re-show the panel
+    /// to everyone who agreed; the legacy key stays reserved so its string
+    /// is never reused.
+    @Test("the voice disclosure key strings are stable across releases")
+    func voiceDisclosureKeyStringsAreStable() {
         #expect(AppSettingsKey.voiceDisclosureSeen.rawValue == "voice_disclosure_seen")
+        #expect(AppSettingsKey.voiceDisclosureVersion.rawValue == "voice_disclosure_version")
     }
 
     @Test("every app_settings key string is unique")

@@ -49,7 +49,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Relora uses your microphone so you can capture voice notes.</string>
+	<string>Relora uses your microphone to record voice notes. With your permission, the audio is sent to OpenAI for transcription.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Relora uses your contacts so you can import selected phone contacts into Relora.</string>
 	<key>SupabaseURL</key>

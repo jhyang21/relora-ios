@@ -3,7 +3,8 @@ import Testing
 @testable import ReloraFeatures
 
 /// Pins the Voice section's copy: `recordingsValue`'s three shapes, the
-/// Delete All Recordings dialog, and the count in its toast.
+/// Delete All Recordings dialog, and the count in its toast. The footer,
+/// OpenAI sentences included, is pinned in full in `VoiceDisclosureTests`.
 ///
 /// The size argument is a literal `"34 MB"` throughout, never a computed
 /// one — the function takes it pre-formatted precisely because byte

@@ -26,15 +26,19 @@ public enum AppSettingsKey: String, Equatable, Sendable, CaseIterable {
     /// (`ReminderNotificationsToggle.swift`).
     case onboardingTutorialReminderID = "onboarding_tutorial_reminder_id"
 
-    /// Whether the one-time "How voice notes work" disclosure has been
-    /// shown and acknowledged. Written only by the disclosure's Continue
-    /// button, never by a dismiss — a swipe is not consent. Absent reads as
-    /// false through `getBooleanStrict`, the same default-false sense every
-    /// boolean key but the two in `AppSettingsDefaults` uses. No RN
-    /// counterpart: the Expo client never shipped this screen, so there is
-    /// no storage constant to mirror. Added by 2.4.0
-    /// (`VoiceDisclosureStorage.swift`, ReloraFeatures).
+    /// Legacy: the boolean the 2.4.0-2.6.2 disclosure wrote on Continue.
+    /// No longer read or written. `VoiceDisclosureStorage` reads
+    /// `voiceDisclosureVersion` instead, so people who saw the old panel,
+    /// which did not name OpenAI, are asked again. Kept so the raw string
+    /// is never reused for a different meaning.
     case voiceDisclosureSeen = "voice_disclosure_seen"
+
+    /// The version of the voice disclosure someone agreed to, as a plain
+    /// string. Written only by the disclosure's "Allow sharing with OpenAI"
+    /// button or the Settings toggle, and deleted when the toggle goes
+    /// off. Consent counts only when the value equals
+    /// `VoiceDisclosureStorage.currentVersion` (ReloraFeatures).
+    case voiceDisclosureVersion = "voice_disclosure_version"
 
     case softUpsellDismissed = "soft_upsell_dismissed"
     case pendingAuthIntent = "pending_auth_intent"
