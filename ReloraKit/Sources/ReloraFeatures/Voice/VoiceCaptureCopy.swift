@@ -4,7 +4,7 @@ import ReloraCore
 /// Which part of the capture the composer is showing. Ports `CaptureStage`
 /// in `VoiceCaptureComposerScreen.tsx`.
 public enum VoiceCaptureStage: String, Equatable, Sendable {
-    /// The one-time "How voice notes work" panel. First because it runs
+    /// The OpenAI consent panel. First because it runs
     /// before everything else — the quota gate and the microphone included.
     /// No RN counterpart; the Expo client never showed it.
     case disclosure
@@ -37,21 +37,19 @@ public enum VoiceCaptureCopy {
 
     // MARK: Disclosure
 
-    /// The one-time panel shown before the first recording. It never names
-    /// the transcription vendor: the privacy policy, the App Privacy labels
-    /// and the App Review notes carry that name, and in-app copy that reads
-    /// like a legal disclosure is copy nobody reads.
-    ///
-    /// The two privacy sentences are the Settings footer's own, not a
-    /// paraphrase — see `SettingsVoiceCopy`.
-    public static let disclosureTitle = "How voice notes work"
+    /// The panel shown before the first recording, and again whenever
+    /// consent is withdrawn in Settings or `VoiceDisclosureStorage` bumps
+    /// its version. It names OpenAI and says what goes there, because App
+    /// Review (5.1.1, 5.1.2) requires the in-app notice to name the third
+    /// party and to ask before any audio leaves the device.
+    public static let disclosureTitle = "Allow OpenAI to process your voice notes?"
     public static let disclosureBody =
-        "You talk, and Relora writes the note. You review it before anything is saved."
+        "Relora uses OpenAI, a third-party AI service, to turn your speech into a note. When you record, your audio and its transcript go to OpenAI, which pulls out the names, dates and details you mention. Live transcription streams audio from this device straight to OpenAI while you talk."
     public static let disclosurePrivacy =
-        "\(SettingsVoiceCopy.audioIsNotKept) \(SettingsVoiceCopy.recordingsStayOnDevice)"
+        "OpenAI does not use your data to train its models. A copy of the recording stays on this iPhone for replay. You review the note before it is saved."
     public static let disclosureMicNotice = "iOS will ask for microphone access next."
     public static let disclosurePrivacyLink = "Privacy Policy"
-    public static let disclosureContinue = "Continue"
+    public static let disclosureContinue = "Allow sharing with OpenAI"
     public static let disclosureNotNow = "Not now"
 
     // MARK: Offline

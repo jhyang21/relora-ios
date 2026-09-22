@@ -38,6 +38,9 @@ public enum SettingsSheet: Identifiable, Equatable, Sendable {
 public final class SettingsViewModel {
     public private(set) var reminderNotificationsEnabled: Bool
     public private(set) var saveVoiceTranscriptsEnabled: Bool
+    /// Consent to send voice notes to OpenAI, as `VoiceDisclosureStorage`
+    /// records it. Off means the next recording asks again.
+    public private(set) var sendVoiceToOpenAIEnabled: Bool
     public private(set) var togglingReminders = false
     public private(set) var syncing = false
     public private(set) var restoring = false
@@ -71,6 +74,7 @@ public final class SettingsViewModel {
     private let toasts: ReloraToastCenter
     private let router: AppRouter
     private let settings: AppSettingsStore
+    private let voiceDisclosure: VoiceDisclosureStorage
 
     public init(
         database: AppDatabase,
@@ -91,9 +95,11 @@ public final class SettingsViewModel {
         self.toasts = toasts
         self.router = router
         self.settings = AppSettingsStore(database: database)
+        self.voiceDisclosure = VoiceDisclosureStorage(database: database)
 
         reminderNotificationsEnabled = (try? settings.reminderNotificationsEnabled()) ?? AppSettingsDefaults.reminderNotificationsEnabled
         saveVoiceTranscriptsEnabled = (try? settings.saveVoiceTranscripts()) ?? AppSettingsDefaults.saveVoiceTranscripts
+        sendVoiceToOpenAIEnabled = voiceDisclosure.readSeen()
 
         let subscription = billing.subscriptionSnapshot
         planName = SettingsPlanCopy.planName(subscription)
@@ -160,6 +166,7 @@ public final class SettingsViewModel {
         let subscription = billing.subscriptionSnapshot
         planName = SettingsPlanCopy.planName(subscription)
         usageFooter = SettingsPlanCopy.usageFooter(subscription: subscription, evaluation: snapshot.evaluation)
+        sendVoiceToOpenAIEnabled = voiceDisclosure.readSeen()
 
         await refreshRecordingsUsage()
     }
@@ -268,6 +275,20 @@ public final class SettingsViewModel {
             saveVoiceTranscriptsEnabled = previous
             toasts.showError("Setting failed", message: "Could not update transcript retention.")
         }
+    }
+
+    /// On writes the same consent the disclosure's "Allow sharing with
+    /// OpenAI" button does; the row's title and the footer say what it
+    /// allows. Off withdraws it, so the next recording shows the
+    /// disclosure again. Read back rather than assumed, because the
+    /// storage swallows write errors.
+    public func toggleSendVoiceToOpenAI(_ value: Bool) {
+        if value {
+            voiceDisclosure.writeSeen()
+        } else {
+            voiceDisclosure.clear()
+        }
+        sendVoiceToOpenAIEnabled = voiceDisclosure.readSeen()
     }
 
     // MARK: - Export
