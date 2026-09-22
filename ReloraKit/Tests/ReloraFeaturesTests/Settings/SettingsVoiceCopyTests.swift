@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import ReloraFeatures
 
-/// Pins the Voice section's copy: the OpenAI sentences, `recordingsValue`'s
-/// three shapes, the Delete All Recordings dialog, and the count in its toast.
+/// Pins the Voice section's copy: `recordingsValue`'s three shapes, the
+/// Delete All Recordings dialog, and the count in its toast. The footer,
+/// OpenAI sentences included, is pinned in full in `VoiceDisclosureTests`.
 ///
 /// The size argument is a literal `"34 MB"` throughout, never a computed
 /// one — the function takes it pre-formatted precisely because byte
@@ -11,19 +12,6 @@ import Testing
 /// own bytes would assert against a value that changes with the machine
 /// running it rather than against the copy this function actually owns.
 struct SettingsVoiceCopyTests {
-    /// App Review 5.1.1/5.1.2: Settings names the vendor too, and tells
-    /// people how to withdraw. The footer is pinned in full in the voice
-    /// disclosure suite.
-    @Test func theFooterNamesOpenAIAndHowToWithdraw() {
-        #expect(
-            SettingsVoiceCopy.audioGoesToOpenAI
-                == "Voice notes are sent to OpenAI for transcription and note extraction. OpenAI does not use them to train its models."
-        )
-        #expect(SettingsVoiceCopy.footer.contains(SettingsVoiceCopy.audioGoesToOpenAI))
-        #expect(SettingsVoiceCopy.footer.contains(SettingsVoiceCopy.withdrawConsent))
-        #expect(SettingsVoiceCopy.footer.hasSuffix("asked again before the next recording."))
-    }
-
     @Test func zeroRecordingsShowsNone() {
         #expect(SettingsVoiceCopy.recordingsValue(count: 0, formattedSize: "34 MB") == "None")
     }

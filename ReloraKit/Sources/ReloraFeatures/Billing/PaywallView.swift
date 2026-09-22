@@ -39,6 +39,8 @@ public struct PaywallView: View {
     @State private var lastFailure: String?
     @State private var isRetryingCatalog = false
 
+    private static let stillConnecting = "Still connecting to the App Store. Try again in a moment."
+
     private enum LoadingAction: Equatable {
         case plan(QuotaPolicy.PlanID)
         case restore
@@ -332,7 +334,7 @@ public struct PaywallView: View {
         case .requiresAccount:
             // Signed in, but billing has not finished logging this account
             // in to RevenueCat yet. Sign-in would not help; waiting does.
-            lastFailure = "Still connecting to the App Store. Try again in a moment."
+            lastFailure = Self.stillConnecting
         case .failed(let message):
             lastFailure = message
             toasts.showError("Purchase unavailable", message: message)
@@ -354,7 +356,7 @@ public struct PaywallView: View {
         case .noPurchasesFound:
             toasts.show("No purchases found", message: "We could not find an active subscription to restore.")
         case .requiresAccount:
-            lastFailure = "Still connecting to the App Store. Try again in a moment."
+            lastFailure = Self.stillConnecting
         case .failed(let message):
             lastFailure = message
             toasts.showError("Restore unavailable", message: message)

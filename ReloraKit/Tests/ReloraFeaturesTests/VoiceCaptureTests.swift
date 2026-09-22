@@ -595,17 +595,14 @@ struct VoiceDisclosureTests {
         #expect(body.contains("names"))
     }
 
-    /// The panel's privacy line, pinned byte for byte. It must not claim
-    /// OpenAI keeps nothing (Andrew dropped that claim for 2.6.3), and its
-    /// on-device sentence must agree with the Settings footer's.
-    @Test func thePrivacyLineMakesOnlyTheClaimsSettingsMakes() {
+    /// The panel's privacy line, pinned byte for byte. It makes the same
+    /// training claim as the Settings footer and no retention claim
+    /// (Andrew dropped "does not keep it" for 2.6.3).
+    @Test func thePrivacyLineIsPinned() {
         #expect(
             VoiceCaptureCopy.disclosurePrivacy
                 == "OpenAI does not use your data to train its models. A copy of the recording stays on this iPhone for replay. You review the note before it is saved."
         )
-        #expect(!VoiceCaptureCopy.disclosurePrivacy.lowercased().contains("keep"))
-        #expect(!SettingsVoiceCopy.footer.lowercased().contains("does not keep"))
-        #expect(SettingsVoiceCopy.audioGoesToOpenAI.contains("does not use them to train"))
     }
 
     /// What Settings says about audio, pinned byte for byte. The sentence

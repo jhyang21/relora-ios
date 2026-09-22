@@ -50,7 +50,6 @@ private final class TimeoutRace<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, any Error>?
     private var finishHandler: (@Sendable () -> Void)?
-    private var isFinished = false
 
     init(_ continuation: CheckedContinuation<T, any Error>) {
         self.continuation = continuation
@@ -60,7 +59,6 @@ private final class TimeoutRace<T: Sendable>: @unchecked Sendable {
         let pending: (CheckedContinuation<T, any Error>, (@Sendable () -> Void)?)? = lock.withLock {
             guard let continuation else { return nil }
             self.continuation = nil
-            isFinished = true
             defer { finishHandler = nil }
             return (continuation, finishHandler)
         }
@@ -73,7 +71,7 @@ private final class TimeoutRace<T: Sendable>: @unchecked Sendable {
     /// is.
     func onFinish(_ handler: @escaping @Sendable () -> Void) {
         let runNow: Bool = lock.withLock {
-            if isFinished { return true }
+            if continuation == nil { return true }
             finishHandler = handler
             return false
         }

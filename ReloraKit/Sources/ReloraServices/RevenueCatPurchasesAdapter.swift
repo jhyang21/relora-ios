@@ -12,11 +12,9 @@ import StoreKit
 /// written on Windows with no Swift toolchain to compile against. Every
 /// `Purchases`/`CustomerInfo`/`EntitlementInfo`/`StoreProduct` member
 /// referenced below is a best-effort name from documentation of the
-/// purchases-ios 5.x API (`Package.swift` pins `from: "5.0.0"`), not
-/// something this change has compiled or run. Treat this whole file as a
-/// draft to correct against whatever version `Package.resolved` actually
-/// pins on the first macOS build — most likely to have drifted, roughly
-/// most to least likely:
+/// purchases-ios 5.x API (`Package.swift` pins 5.87.1 exactly), not
+/// something compiled or run locally; GitHub CI is the only compiler. The
+/// assumptions, roughly most to least likely to be wrong:
 ///   - `Purchases.configure(withAPIKey:)`'s exact overload (this assumes
 ///     the simple form with no `appUserID:` — logIn happens separately,
 ///     matching RN's own configure-then-logIn split)
@@ -25,8 +23,6 @@ import StoreKit
 ///   - `Purchases.shared.logOut()` returning `CustomerInfo` (assumed async
 ///     throwing; discarded here since `PurchasesProviding.logOut()` has no
 ///     return value)
-///   - `Purchases.shared.products(_:)` — assumed non-throwing async
-///     returning `[StoreProduct]`
 ///   - `Purchases.shared.customerInfo()` — assumed async throwing
 ///   - `Purchases.shared.purchase(product:)` — assumed async throwing,
 ///     returning a result carrying `customerInfo` and `userCancelled`
