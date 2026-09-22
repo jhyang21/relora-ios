@@ -34,7 +34,7 @@ import ReloraSync
         func configure(apiKey: String) async {}
         func logIn(appUserID: String) async throws -> PurchasesCustomerInfo { .empty }
         func logOut() async throws {}
-        func products(identifiers: [String]) async -> [PurchasesProduct] { [] }
+        func products(identifiers: [String]) async throws -> [PurchasesProduct] { [] }
         func customerInfo() async throws -> PurchasesCustomerInfo { .empty }
         func purchase(productID: String) async throws -> PurchasesPurchaseResult { .userCancelled }
         func restorePurchases() async throws -> PurchasesCustomerInfo { .empty }

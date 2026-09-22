@@ -42,15 +42,27 @@ private actor FakePurchasesProviding: PurchasesProviding {
     private(set) var logOutCallCount = 0
     private(set) var productsCalls: [[String]] = []
     private(set) var purchaseCalls: [String] = []
+    private(set) var diagnosticsCalls: [[String: String]] = []
 
     private var logInResult: Result<PurchasesCustomerInfo, Error>
     private var customerInfoResult: Result<PurchasesCustomerInfo, Error>
     private var productsResult: [PurchasesProduct]
+    /// Thrown by `products` in place of `productsResult` when set.
+    private var productsError: Error?
     private var purchaseResult: Result<PurchasesPurchaseResult, Error>
     private var restoreResult: Result<PurchasesCustomerInfo, Error>
     /// Per-product answers for `introEligibility`; anything not listed is
     /// `.eligible`, which is the answer a fresh Apple ID gets.
     private var eligibilityResult: [String: PurchasesIntroEligibility]
+
+    /// While true, `products` / `introEligibility` suspend until the test
+    /// calls `releaseProducts()` / `releaseEligibility()` — a StoreKit call
+    /// stuck on the network. Neither answers cancellation, which is the
+    /// case a deadline exists for.
+    private var holdsProducts: Bool
+    private var holdsEligibility: Bool
+    private var productsWaiters: [CheckedContinuation<Void, Never>] = []
+    private var eligibilityWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         logInResult: Result<PurchasesCustomerInfo, Error> = .success(.empty),
@@ -58,17 +70,41 @@ private actor FakePurchasesProviding: PurchasesProviding {
         productsResult: [PurchasesProduct] = [],
         purchaseResult: Result<PurchasesPurchaseResult, Error> = .success(.userCancelled),
         restoreResult: Result<PurchasesCustomerInfo, Error> = .success(.empty),
-        eligibilityResult: [String: PurchasesIntroEligibility] = [:]
+        eligibilityResult: [String: PurchasesIntroEligibility] = [:],
+        productsError: Error? = nil,
+        holdsProducts: Bool = false,
+        holdsEligibility: Bool = false
     ) {
         self.logInResult = logInResult
         self.customerInfoResult = customerInfoResult
         self.eligibilityResult = eligibilityResult
         self.productsResult = productsResult
+        self.productsError = productsError
         self.purchaseResult = purchaseResult
         self.restoreResult = restoreResult
+        self.holdsProducts = holdsProducts
+        self.holdsEligibility = holdsEligibility
     }
 
     func setCustomerInfoResult(_ result: Result<PurchasesCustomerInfo, Error>) { customerInfoResult = result }
+
+    /// Replaces the catalog answer and clears any lookup error.
+    func setProducts(_ products: [PurchasesProduct]) {
+        productsResult = products
+        productsError = nil
+    }
+
+    func releaseProducts() {
+        holdsProducts = false
+        productsWaiters.forEach { $0.resume() }
+        productsWaiters.removeAll()
+    }
+
+    func releaseEligibility() {
+        holdsEligibility = false
+        eligibilityWaiters.forEach { $0.resume() }
+        eligibilityWaiters.removeAll()
+    }
 
     func configure(apiKey: String) async {
         configureCalls.append(apiKey)
@@ -83,8 +119,14 @@ private actor FakePurchasesProviding: PurchasesProviding {
         logOutCallCount += 1
     }
 
-    func products(identifiers: [String]) async -> [PurchasesProduct] {
+    func products(identifiers: [String]) async throws -> [PurchasesProduct] {
         productsCalls.append(identifiers)
+        if holdsProducts {
+            await withCheckedContinuation { productsWaiters.append($0) }
+        }
+        if let productsError {
+            throw productsError
+        }
         return productsResult
     }
 
@@ -102,8 +144,37 @@ private actor FakePurchasesProviding: PurchasesProviding {
     }
 
     func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] {
-        Dictionary(uniqueKeysWithValues: productIDs.map { ($0, eligibilityResult[$0] ?? .eligible) })
+        if holdsEligibility {
+            await withCheckedContinuation { eligibilityWaiters.append($0) }
+        }
+        return Dictionary(uniqueKeysWithValues: productIDs.map { ($0, eligibilityResult[$0] ?? .eligible) })
     }
+
+    func recordDiagnostics(_ attributes: [String: String]) async {
+        diagnosticsCalls.append(attributes)
+    }
+}
+
+/// A `BillingService` whose diagnostics read a fixed storefront: the test
+/// host has no App Store account to ask.
+@MainActor
+private func makeBilling(
+    _ fake: FakePurchasesProviding,
+    timeouts: BillingTimeouts = BillingTimeouts()
+) -> BillingService {
+    BillingService(purchases: fake, config: testConfig, timeouts: timeouts, storefrontCountry: { "USA" })
+}
+
+/// Spins until `condition` holds. Bounded, so a broken expectation fails
+/// the test rather than hanging CI. Sleeps rather than only yielding: the
+/// product lookup runs off the main actor.
+@MainActor
+private func waitUntil(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<2_000 {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    return condition()
 }
 
 // MARK: - Entitlement precedence and plan mapping
@@ -482,4 +553,217 @@ private let proTrialProduct = PurchasesProduct(
         Issue.record("Expected .failed, got \(outcome)")
         return
     }
+}
+
+// MARK: - Catalog publishing, deadlines and retry
+
+/// The paywall's prices must not wait on the trial check: that check is
+/// the slowest of the three calls, and until the catalog lands every plan
+/// button stays disabled.
+@MainActor
+@Test func theCatalogPublishesWhileEligibilityIsStillPending() async {
+    let fake = FakePurchasesProviding(
+        productsResult: [proTrialProduct],
+        eligibilityResult: [testConfig.proProductID: .ineligible],
+        holdsEligibility: true
+    )
+    let billing = makeBilling(fake)
+
+    let change = Task { await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com")) }
+    let loaded = await waitUntil { billing.catalogLoaded }
+
+    #expect(loaded)
+    #expect(billing.isCatalogAvailable)
+    #expect(billing.purchaseCatalog[.pro] == proTrialProduct)
+    #expect(billing.trialEligibility.isEmpty)
+
+    await fake.releaseEligibility()
+    await change.value
+
+    #expect(billing.trialEligibility[.pro] == .ineligible)
+}
+
+/// An eligibility check past its deadline is no answer, which reads as
+/// `.unknown` for a product that has an offer.
+@MainActor
+@Test func eligibilityPastItsDeadlineReadsAsUnknown() async {
+    let fake = FakePurchasesProviding(productsResult: [proTrialProduct], holdsEligibility: true)
+    let billing = makeBilling(fake, timeouts: BillingTimeouts(eligibility: .milliseconds(50)))
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    #expect(billing.catalogLoaded)
+    #expect(billing.trialEligibility[.pro] == .unknown)
+    await fake.releaseEligibility()
+}
+
+@MainActor
+@Test func aThrownLookupMarksTheCatalogUnavailableAndRecordsIt() async {
+    let lookupError = PurchasesProviderError.productLookupFailed("StoreKit.StoreKitError#1: The network connection was lost.")
+    let fake = FakePurchasesProviding(productsError: lookupError)
+    let billing = makeBilling(fake)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    await billing.waitForDiagnostics()
+
+    #expect(!billing.isCatalogAvailable)
+    #expect(billing.catalogLoaded)
+    #expect(billing.purchaseCatalog.isEmpty)
+    let calls = await fake.diagnosticsCalls
+    #expect(calls.count == 1)
+    #expect(calls.first?["relora_billing_stage"] == "catalog")
+    #expect(calls.first?["relora_billing_catalog"] == "StoreKit.StoreKitError#1: The network connection was lost.")
+    #expect(calls.first?["relora_billing_error"] == "StoreKit.StoreKitError#1: The network connection was lost.")
+    #expect(calls.first?["relora_storefront"] == "USA")
+    #expect(calls.first?["relora_billing_at"] != nil)
+    #expect(calls.first?["relora_build"] != nil)
+}
+
+/// A lookup that never answers is a failed lookup once its deadline
+/// passes, not a paywall stuck on "Loading price…".
+@MainActor
+@Test func aLookupPastItsDeadlineCountsAsFailed() async {
+    let fake = FakePurchasesProviding(productsResult: [proTrialProduct], holdsProducts: true)
+    let billing = makeBilling(fake, timeouts: BillingTimeouts(products: .milliseconds(50)))
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    await billing.waitForDiagnostics()
+
+    #expect(billing.catalogLoaded)
+    #expect(!billing.isCatalogAvailable)
+    #expect(billing.purchaseCatalog.isEmpty)
+    #expect(await fake.diagnosticsCalls.first?["relora_billing_catalog"] == "timeout")
+    await fake.releaseProducts()
+}
+
+/// A good lookup is recorded too, as a count, and names no failure stage.
+@MainActor
+@Test func aSuccessfulLookupRecordsTheProductCount() async {
+    let products = [
+        PurchasesProduct(identifier: testConfig.plusProductID, localizedPriceString: "$4.99"),
+        PurchasesProduct(identifier: testConfig.proProductID, localizedPriceString: "$19.99"),
+    ]
+    let fake = FakePurchasesProviding(productsResult: products)
+    let billing = makeBilling(fake)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    await billing.waitForDiagnostics()
+
+    let calls = await fake.diagnosticsCalls
+    #expect(calls.count == 1)
+    #expect(calls.first?["relora_billing_catalog"] == "2 products")
+    #expect(calls.first?["relora_billing_stage"] == nil)
+}
+
+@MainActor
+@Test func refreshCatalogRepopulatesAfterAFailure() async {
+    let fake = FakePurchasesProviding(productsError: PurchasesProviderError.productLookupFailed("offline"))
+    let billing = makeBilling(fake)
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    #expect(!billing.isCatalogAvailable)
+
+    await fake.setProducts([
+        PurchasesProduct(identifier: testConfig.plusProductID, localizedPriceString: "$4.99"),
+        proTrialProduct,
+    ])
+    await billing.refreshCatalog()
+
+    #expect(billing.isCatalogAvailable)
+    #expect(billing.catalogLoaded)
+    #expect(billing.purchaseCatalog[.plus]?.localizedPriceString == "$4.99")
+    #expect(billing.purchaseCatalog[.pro] == proTrialProduct)
+    // Eligibility is asked again for the retried catalog.
+    #expect(billing.trialEligibility[.pro] == .eligible)
+}
+
+@MainActor
+@Test func refreshCatalogWithoutAnAccountDoesNothing() async {
+    let fake = FakePurchasesProviding(productsResult: [proTrialProduct])
+    let billing = makeBilling(fake)
+
+    await billing.refreshCatalog()
+
+    #expect(await fake.productsCalls.isEmpty)
+    #expect(!billing.catalogLoaded)
+}
+
+@MainActor
+@Test func leavingAnAccountResetsCatalogLoaded() async {
+    let fake = FakePurchasesProviding(productsResult: [proTrialProduct])
+    let billing = makeBilling(fake)
+
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    #expect(billing.catalogLoaded)
+    await billing.handleIdentityChange(.localGuest(userID: "local-guest-1"))
+
+    #expect(!billing.catalogLoaded)
+}
+
+// MARK: - Failure diagnostics
+
+@MainActor
+@Test func aFailedPurchaseRecordsStagePurchase() async {
+    let fake = FakePurchasesProviding(
+        purchaseResult: .failure(PurchasesProviderError.underlying("RevenueCat.ErrorCode#2: There was a problem with the App Store."))
+    )
+    let billing = makeBilling(fake)
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    let outcome = await billing.purchase(planID: .plus)
+    await billing.waitForDiagnostics()
+
+    #expect(outcome == .failed(BillingService.failureMessage(stage: "purchase")))
+    let last = await fake.diagnosticsCalls.last
+    #expect(last?["relora_billing_stage"] == "purchase")
+    #expect(last?["relora_billing_product"] == testConfig.plusProductID)
+    #expect(last?["relora_billing_error"] == "RevenueCat.ErrorCode#2: There was a problem with the App Store.")
+}
+
+/// A product StoreKit cannot find failed before any purchase began.
+@MainActor
+@Test func aProductNotFoundRecordsStageLookup() async {
+    let fake = FakePurchasesProviding(
+        purchaseResult: .failure(PurchasesProviderError.productNotFound(testConfig.proProductID))
+    )
+    let billing = makeBilling(fake)
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    let outcome = await billing.purchase(planID: .pro)
+    await billing.waitForDiagnostics()
+
+    #expect(outcome == .failed(BillingService.failureMessage(stage: "lookup")))
+    let last = await fake.diagnosticsCalls.last
+    #expect(last?["relora_billing_stage"] == "lookup")
+    #expect(last?["relora_billing_product"] == testConfig.proProductID)
+    #expect(last?["relora_billing_error"] == "productNotFound: \(testConfig.proProductID)")
+}
+
+@MainActor
+@Test func aFailedRestoreRecordsStageRestore() async {
+    let fake = FakePurchasesProviding(restoreResult: .failure(PurchasesProviderError.underlying("RevenueCat.ErrorCode#10: Network error.")))
+    let billing = makeBilling(fake)
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+
+    let outcome = await billing.restorePurchases()
+    await billing.waitForDiagnostics()
+
+    #expect(outcome == .failed(BillingService.failureMessage(stage: "restore")))
+    let last = await fake.diagnosticsCalls.last
+    #expect(last?["relora_billing_stage"] == "restore")
+    #expect(last?["relora_billing_error"] == "RevenueCat.ErrorCode#10: Network error.")
+}
+
+/// A cancelled sheet is not a failure and leaves no record.
+@MainActor
+@Test func aCancelledPurchaseRecordsNothing() async {
+    let fake = FakePurchasesProviding(purchaseResult: .success(.userCancelled))
+    let billing = makeBilling(fake)
+    await billing.handleIdentityChange(.account(userID: "acct-1", email: "a@example.com"))
+    await billing.waitForDiagnostics()
+    let before = await fake.diagnosticsCalls.count
+
+    _ = await billing.purchase(planID: .plus)
+    await billing.waitForDiagnostics()
+
+    #expect(await fake.diagnosticsCalls.count == before)
 }

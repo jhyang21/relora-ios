@@ -31,7 +31,7 @@ private actor FakePurchasesProviding: PurchasesProviding {
     func configure(apiKey: String) async {}
     func logIn(appUserID: String) async throws -> PurchasesCustomerInfo { try customerInfoResult.get() }
     func logOut() async throws {}
-    func products(identifiers: [String]) async -> [PurchasesProduct] { [] }
+    func products(identifiers: [String]) async throws -> [PurchasesProduct] { [] }
     /// An empty catalog leaves `trialEligibility` empty whatever this
     /// answers, and nothing here reads it.
     func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] { [:] }

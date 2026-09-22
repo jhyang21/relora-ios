@@ -37,8 +37,7 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .plus,
             product: Self.product(id: "plus", price: "$4.99"),
-            eligibility: .noOffer,
-            fallbackPrice: "$4.99"
+            eligibility: .noOffer
         )
 
         #expect(lines.price == "$4.99/month")
@@ -46,13 +45,12 @@ struct PaywallPricingTests {
         #expect(lines.cta == "Choose Plus")
     }
 
-    /// The storefront string wins over the fallback, and arrives trimmed.
-    @Test func theLivePriceReplacesTheFallback() {
+    /// The storefront string arrives trimmed.
+    @Test func theLivePriceArrivesTrimmed() {
         let lines = PaywallPricing.lines(
             planID: .plus,
             product: Self.product(id: "plus", price: "  £5.99  "),
-            eligibility: .noOffer,
-            fallbackPrice: "$4.99"
+            eligibility: .noOffer
         )
 
         #expect(lines.price == "£5.99/month")
@@ -64,8 +62,7 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .pro,
             product: Self.product(id: "pro", price: "$19.99", offer: Self.sevenDayTrial),
-            eligibility: .eligible,
-            fallbackPrice: "$19.99"
+            eligibility: .eligible
         )
 
         #expect(lines.price == "7 days free, then $19.99/month")
@@ -78,8 +75,8 @@ struct PaywallPricingTests {
     /// eligible — the same answer a missing check gets.
     @Test func anUnknownAnswerIsTreatedAsEligible() {
         let product = Self.product(id: "pro", price: "$19.99", offer: Self.sevenDayTrial)
-        let unknown = PaywallPricing.lines(planID: .pro, product: product, eligibility: .unknown, fallbackPrice: "$19.99")
-        let missing = PaywallPricing.lines(planID: .pro, product: product, eligibility: nil, fallbackPrice: "$19.99")
+        let unknown = PaywallPricing.lines(planID: .pro, product: product, eligibility: .unknown)
+        let missing = PaywallPricing.lines(planID: .pro, product: product, eligibility: nil)
 
         #expect(unknown.cta == "Start 7-day free trial")
         #expect(unknown == missing)
@@ -95,8 +92,7 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .pro,
             product: Self.product(id: "pro", price: "$19.99", offer: offer),
-            eligibility: .eligible,
-            fallbackPrice: "$19.99"
+            eligibility: .eligible
         )
 
         #expect(lines.price == "1 day free, then $19.99/month")
@@ -111,8 +107,7 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .pro,
             product: Self.product(id: "pro", price: "$19.99", offer: Self.sevenDayTrial),
-            eligibility: .ineligible,
-            fallbackPrice: "$19.99"
+            eligibility: .ineligible
         )
 
         #expect(lines.price == "$19.99/month")
@@ -124,8 +119,7 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .pro,
             product: Self.product(id: "pro", price: "$19.99"),
-            eligibility: .noOffer,
-            fallbackPrice: "$19.99"
+            eligibility: .noOffer
         )
 
         #expect(lines.price == "$19.99/month")
@@ -143,15 +137,14 @@ struct PaywallPricingTests {
         let lines = PaywallPricing.lines(
             planID: .pro,
             product: Self.product(id: "pro", price: "$19.99", offer: payUpFront),
-            eligibility: .eligible,
-            fallbackPrice: "$19.99"
+            eligibility: .eligible
         )
 
         #expect(lines.price == "$19.99/month")
         #expect(lines.cta == "Subscribe to Pro")
     }
 
-    // MARK: - Periods and fallbacks
+    // MARK: - Periods
 
     @Test func aYearlyProductBillsPerYear() {
         let lines = PaywallPricing.lines(
@@ -161,8 +154,7 @@ struct PaywallPricingTests {
                 price: "$49.99",
                 period: PurchasesSubscriptionPeriod(unit: .year, value: 1)
             ),
-            eligibility: .noOffer,
-            fallbackPrice: "$4.99"
+            eligibility: .noOffer
         )
 
         #expect(lines.price == "$49.99/year")
@@ -178,35 +170,71 @@ struct PaywallPricingTests {
                 price: "$12.99",
                 period: PurchasesSubscriptionPeriod(unit: .month, value: 3)
             ),
-            eligibility: .noOffer,
-            fallbackPrice: "$4.99"
+            eligibility: .noOffer
         )
 
         #expect(lines.price == "$12.99/3 months")
     }
 
-    /// Before the catalog loads there is no product at all. The card still
-    /// has to say something true, and monthly is what both plans bill at.
-    @Test func noProductFallsBackToTheStaticPriceAndAMonthlyPeriod() {
-        let plus = PaywallPricing.lines(planID: .plus, product: nil, eligibility: nil, fallbackPrice: "$4.99")
-        let pro = PaywallPricing.lines(planID: .pro, product: nil, eligibility: nil, fallbackPrice: "$19.99")
+    // MARK: - No live price
 
-        #expect(plus.price == "$4.99/month")
-        #expect(plus.cta == "Choose Plus")
-        #expect(pro.price == "$19.99/month")
-        #expect(pro.cta == "Subscribe to Pro")
-        #expect(pro.renewal == "Renews automatically at $19.99/month until canceled.")
+    /// No static price is ever quoted: it would be wrong in every other
+    /// storefront. Each placeholder says why there is no price, and none
+    /// of them counts as a live price, which is what disables the button.
+    @Test func noProductQuotesNoAmountWhileLoading() {
+        let lines = PaywallPricing.lines(planID: .pro, product: nil, eligibility: nil, missingPrice: .loading)
+
+        #expect(lines.price == "Loading price…")
+        #expect(lines.renewal == "Renews automatically every month until canceled.")
+        #expect(lines.cta == "Subscribe to Pro")
+        #expect(!lines.hasLivePrice)
+    }
+
+    @Test func noProductAfterTheLookupSaysPriceUnavailable() {
+        let lines = PaywallPricing.lines(planID: .plus, product: nil, eligibility: nil, missingPrice: .unavailable)
+
+        #expect(lines.price == "Price unavailable")
+        #expect(lines.cta == "Choose Plus")
+        #expect(!lines.hasLivePrice)
+    }
+
+    /// A guest has no catalog; choosing a plan opens sign-in first.
+    @Test func aGuestIsToldThePriceComesAfterSignIn() {
+        let lines = PaywallPricing.lines(planID: .plus, product: nil, eligibility: nil, missingPrice: .afterSignIn)
+
+        #expect(lines.price == "Price shown after you sign in")
+        #expect(!lines.hasLivePrice)
     }
 
     /// A blank storefront string is as good as no product.
-    @Test func aBlankPriceFallsBackToo() {
+    @Test func aBlankPriceIsNoPrice() {
         let lines = PaywallPricing.lines(
             planID: .plus,
             product: Self.product(id: "plus", price: "   "),
             eligibility: .noOffer,
-            fallbackPrice: "$4.99"
+            missingPrice: .unavailable
         )
 
-        #expect(lines.price == "$4.99/month")
+        #expect(lines.price == "Price unavailable")
+        #expect(!lines.hasLivePrice)
+    }
+
+    /// Placeholders never promise a trial, even for a product-less Pro
+    /// card whose eligibility has not landed.
+    @Test func aPlaceholderNeverShowsTrialCopy() {
+        let lines = PaywallPricing.lines(planID: .pro, product: nil, eligibility: .eligible, missingPrice: .loading)
+
+        #expect(lines.cta == "Subscribe to Pro")
+        #expect(!lines.price.contains("free"))
+    }
+
+    @Test func aLiveProductHasALivePrice() {
+        let lines = PaywallPricing.lines(
+            planID: .plus,
+            product: Self.product(id: "plus", price: "$4.99"),
+            eligibility: .noOffer
+        )
+
+        #expect(lines.hasLivePrice)
     }
 }
