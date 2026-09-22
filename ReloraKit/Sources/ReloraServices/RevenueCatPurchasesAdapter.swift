@@ -1,5 +1,6 @@
 import Foundation
 import RevenueCat
+import StoreKit
 
 /// Wraps RevenueCat's `Purchases` singleton to satisfy `PurchasesProviding`
 /// for production use. Test code should conform a fake to
@@ -56,19 +57,34 @@ import RevenueCat
 ///     `[String: IntroEligibility]`
 ///   - `IntroEligibility.status: IntroEligibilityStatus` with cases
 ///     `.unknown`, `.ineligible`, `.eligible`, `.noIntroOfferExists`
+///
+/// 2.6.3 (App Review 2.1(b)) moved the product lookup to StoreKit 2 so its
+/// error survives, and added diagnostics. Unverified the same way:
+///   - `StoreKit.Product.products(for:)` (async throws)
+///   - `RevenueCat.StoreProduct(sk2Product:)`
+///   - `Purchases.shared.attribution.setAttributes(_:)`
+///   - `Purchases.shared.syncAttributesAndOfferingsIfNeeded()` (async throws)
+///   - `RevenueCat.ErrorCode.purchaseCancelledError`, caught from a
+///     thrown error by `as`
+///
+/// StoreKit and RevenueCat both declare product types, so RevenueCat's
+/// types are qualified with their module below.
 public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var isConfigured = false
 
     public init() {}
 
+    /// Configures under the lock and marks it done only afterwards, so a
+    /// second caller can never see `isConfigured` before
+    /// `Purchases.shared` exists. The SDK call is synchronous; nothing is
+    /// awaited while the lock is held.
     public func configure(apiKey: String) async {
-        let alreadyConfigured: Bool = lock.withLock {
-            defer { isConfigured = true }
-            return isConfigured
+        lock.withLock {
+            guard !isConfigured else { return }
+            Purchases.configure(withAPIKey: apiKey)
+            isConfigured = true
         }
-        guard !alreadyConfigured else { return }
-        Purchases.configure(withAPIKey: apiKey)
     }
 
     @discardableResult
@@ -77,7 +93,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
             let result = try await Purchases.shared.logIn(appUserID)
             return Self.map(result.customerInfo)
         } catch {
-            throw PurchasesProviderError.underlying(String(describing: error))
+            throw PurchasesProviderError.underlying(Self.describe(error))
         }
     }
 
@@ -85,21 +101,15 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         do {
             _ = try await Purchases.shared.logOut()
         } catch {
-            throw PurchasesProviderError.underlying(String(describing: error))
+            throw PurchasesProviderError.underlying(Self.describe(error))
         }
     }
 
-    public func products(identifiers: [String]) async -> [PurchasesProduct] {
+    /// Asks StoreKit 2 directly rather than `Purchases.shared.products(_:)`,
+    /// which swallows the lookup error and returns `[]`.
+    public func products(identifiers: [String]) async throws -> [PurchasesProduct] {
         guard !identifiers.isEmpty else { return [] }
-        let products = await Purchases.shared.products(identifiers)
-        return products.map {
-            PurchasesProduct(
-                identifier: $0.productIdentifier,
-                localizedPriceString: $0.localizedPriceString,
-                subscriptionPeriod: Self.map($0.subscriptionPeriod),
-                introductoryOffer: Self.map($0.introductoryDiscount)
-            )
-        }
+        return try await Self.storeProducts(identifiers).map { Self.map($0) }
     }
 
     public func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility] {
@@ -112,12 +122,12 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         do {
             return Self.map(try await Purchases.shared.customerInfo())
         } catch {
-            throw PurchasesProviderError.underlying(String(describing: error))
+            throw PurchasesProviderError.underlying(Self.describe(error))
         }
     }
 
     public func purchase(productID: String) async throws -> PurchasesPurchaseResult {
-        let products = await Purchases.shared.products([productID])
+        let products = try await Self.storeProducts([productID])
         guard let product = products.first(where: { $0.productIdentifier == productID }) else {
             throw PurchasesProviderError.productNotFound(productID)
         }
@@ -127,8 +137,13 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
                 return .userCancelled
             }
             return .success(Self.map(result.customerInfo))
+        } catch let error as RevenueCat.ErrorCode where error == .purchaseCancelledError {
+            // The async `purchase(product:)` can report a dismissed sheet
+            // by throwing this code instead of setting `userCancelled`.
+            // It is not a failure and must not show as one.
+            return .userCancelled
         } catch {
-            throw PurchasesProviderError.underlying(String(describing: error))
+            throw PurchasesProviderError.underlying(Self.describe(error))
         }
     }
 
@@ -136,11 +151,51 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         do {
             return Self.map(try await Purchases.shared.restorePurchases())
         } catch {
-            throw PurchasesProviderError.underlying(String(describing: error))
+            throw PurchasesProviderError.underlying(Self.describe(error))
         }
     }
 
-    private static func map(_ info: CustomerInfo) -> PurchasesCustomerInfo {
+    /// Attributes first, then a sync so they reach the dashboard now
+    /// rather than on the next customer-info fetch. Both halves are
+    /// best-effort. Skipped before `configure`, when `Purchases.shared`
+    /// does not exist yet.
+    public func recordDiagnostics(_ attributes: [String: String]) async {
+        guard lock.withLock({ isConfigured }) else { return }
+        Purchases.shared.attribution.setAttributes(attributes)
+        _ = try? await Purchases.shared.syncAttributesAndOfferingsIfNeeded()
+    }
+
+    // MARK: - Product lookup
+
+    /// Looks the ids up in StoreKit 2 and wraps each result for
+    /// RevenueCat. Any StoreKit error becomes `.productLookupFailed` with
+    /// its domain and code kept.
+    private static func storeProducts(_ identifiers: [String]) async throws -> [RevenueCat.StoreProduct] {
+        do {
+            let products = try await StoreKit.Product.products(for: identifiers)
+            return products.map { RevenueCat.StoreProduct(sk2Product: $0) }
+        } catch {
+            throw PurchasesProviderError.productLookupFailed(describe(error))
+        }
+    }
+
+    /// `"<domain>#<code>: <description>"`, the form every wrapped error
+    /// string takes (see `PurchasesProviderError`).
+    private static func describe(_ error: any Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.domain)#\(nsError.code): \(nsError.localizedDescription)"
+    }
+
+    private static func map(_ product: RevenueCat.StoreProduct) -> PurchasesProduct {
+        PurchasesProduct(
+            identifier: product.productIdentifier,
+            localizedPriceString: product.localizedPriceString,
+            subscriptionPeriod: map(product.subscriptionPeriod),
+            introductoryOffer: map(product.introductoryDiscount)
+        )
+    }
+
+    private static func map(_ info: RevenueCat.CustomerInfo) -> PurchasesCustomerInfo {
         var active: [String: PurchasesEntitlementInfo] = [:]
         for (key, entitlement) in info.entitlements.active {
             active[key] = PurchasesEntitlementInfo(
@@ -156,7 +211,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         return PurchasesCustomerInfo(activeEntitlements: active)
     }
 
-    private static func map(_ periodType: PeriodType) -> PurchasesPeriodType {
+    private static func map(_ periodType: RevenueCat.PeriodType) -> PurchasesPeriodType {
         switch periodType {
         case .normal: return .normal
         case .intro: return .intro
@@ -166,7 +221,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         }
     }
 
-    private static func map(_ period: SubscriptionPeriod?) -> PurchasesSubscriptionPeriod? {
+    private static func map(_ period: RevenueCat.SubscriptionPeriod?) -> PurchasesSubscriptionPeriod? {
         guard let period else { return nil }
         let unit: PurchasesSubscriptionPeriod.Unit
         switch period.unit {
@@ -182,7 +237,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
     /// An offer whose period this seam cannot name (a future unit) is
     /// dropped rather than guessed at: no offer at all makes the paywall
     /// quote the plain price, which is always safe to say.
-    private static func map(_ discount: StoreProductDiscount?) -> PurchasesIntroOffer? {
+    private static func map(_ discount: RevenueCat.StoreProductDiscount?) -> PurchasesIntroOffer? {
         guard let discount, let period = map(discount.subscriptionPeriod) else { return nil }
         let paymentMode: PurchasesIntroOffer.PaymentMode
         switch discount.paymentMode {
@@ -198,7 +253,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         )
     }
 
-    private static func map(_ status: IntroEligibilityStatus) -> PurchasesIntroEligibility {
+    private static func map(_ status: RevenueCat.IntroEligibilityStatus) -> PurchasesIntroEligibility {
         switch status {
         case .eligible: return .eligible
         case .ineligible: return .ineligible
@@ -208,7 +263,7 @@ public final class RevenueCatPurchasesAdapter: PurchasesProviding, @unchecked Se
         }
     }
 
-    private static func map(_ store: Store) -> PurchasesStore {
+    private static func map(_ store: RevenueCat.Store) -> PurchasesStore {
         switch store {
         case .appStore, .macAppStore:
             return .apple

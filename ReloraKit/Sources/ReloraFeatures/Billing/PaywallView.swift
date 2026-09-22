@@ -32,6 +32,12 @@ public struct PaywallView: View {
     @State private var purchasedSnapshot: SubscriptionSnapshot?
     @State private var pendingAuthGate: PendingAuthAction?
     @State private var resumeAction: PendingAuthAction?
+    /// The last purchase or restore failure, shown as a card at the top of
+    /// the plan list. A toast alone is not enough: it can be missed, and
+    /// the next attempt should find the reason still on screen. Cleared
+    /// when a new attempt starts.
+    @State private var lastFailure: String?
+    @State private var isRetryingCatalog = false
 
     private enum LoadingAction: Equatable {
         case plan(QuotaPolicy.PlanID)
@@ -85,6 +91,10 @@ public struct PaywallView: View {
                 }
             }
         }
+        // This view is itself a sheet, so the root toast layer renders
+        // underneath it. The center is shared; this layer shows the same
+        // toasts above the paywall.
+        .reloraToastLayer(toasts, clearance: ReloraFloatingLayout.toastGap)
         .sheet(item: $pendingAuthGate) { action in
             AuthView(context: authGateContext(for: action), identity: identity)
         }
@@ -112,7 +122,11 @@ public struct PaywallView: View {
                 }
 
                 if !billing.isCatalogAvailable {
-                    noticeCard("Plans are temporarily unavailable. Try again in a moment.")
+                    catalogNotice
+                }
+
+                if let lastFailure {
+                    noticeCard(lastFailure, tone: .error)
                 }
 
                 if !isAccount {
@@ -200,8 +214,11 @@ public struct PaywallView: View {
             planID: plan.planID,
             product: billing.purchaseCatalog[plan.planID],
             eligibility: billing.trialEligibility[plan.planID],
-            fallbackPrice: plan.priceLine
+            missingPrice: missingPrice
         )
+        // A guest's button opens sign-in, which needs no price. An
+        // account's button sells, so it waits for a live one.
+        let awaitsPrice = isAccount && !lines.hasLivePrice
 
         ReloraCard(shadow: plan.featured ? .raised : .card) {
             VStack(alignment: .leading, spacing: ReloraSpacing.sm) {
@@ -250,18 +267,51 @@ public struct PaywallView: View {
                     Text(isCurrentPlan ? "Current plan" : (isLoadingThisPlan ? "Processing..." : lines.cta))
                 }
                 .buttonStyle(.reloraPrimary)
-                .disabled(loadingAction != nil || isCurrentPlan)
+                .disabled(loadingAction != nil || isCurrentPlan || awaitsPrice)
                 .accessibilityLabel("\(plan.title), \(lines.price)")
             }
         }
     }
 
-    @ViewBuilder
-    private func noticeCard(_ text: String) -> some View {
+    /// What a card says in place of a price it does not have.
+    private var missingPrice: PaywallPricing.MissingPrice {
+        guard isAccount else { return .afterSignIn }
+        return billing.catalogLoaded ? .unavailable : .loading
+    }
+
+    private var catalogNotice: some View {
         ReloraCard(surface: ReloraColor.warmCard) {
+            VStack(alignment: .leading, spacing: ReloraSpacing.xs) {
+                Text("Plans are temporarily unavailable. Try again in a moment.")
+                    .font(ReloraFont.footnote)
+                    .foregroundStyle(ReloraColor.ink)
+                Button {
+                    Task { await retryCatalog() }
+                } label: {
+                    Text(isRetryingCatalog ? "Trying again..." : "Try again")
+                        .font(ReloraFont.footnote)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ReloraColor.accentText)
+                .disabled(isRetryingCatalog || loadingAction != nil)
+                .accessibilityLabel("Try loading plans again")
+            }
+        }
+    }
+
+    private enum NoticeTone {
+        case info
+        case error
+    }
+
+    @ViewBuilder
+    private func noticeCard(_ text: String, tone: NoticeTone = .info) -> some View {
+        ReloraCard(surface: tone == .error ? ReloraColor.dangerSurface : ReloraColor.warmCard) {
             Text(text)
                 .font(ReloraFont.footnote)
-                .foregroundStyle(ReloraColor.ink)
+                .foregroundStyle(tone == .error ? ReloraColor.danger : ReloraColor.ink)
         }
     }
 
@@ -274,14 +324,17 @@ public struct PaywallView: View {
             return
         }
         loadingAction = .plan(planID)
+        lastFailure = nil
         defer { loadingAction = nil }
         switch await billing.purchase(planID: planID) {
         case .cancelled:
             break
         case .requiresAccount:
-            resumeAction = .purchase(planID)
-            pendingAuthGate = .purchase(planID)
+            // Signed in, but billing has not finished logging this account
+            // in to RevenueCat yet. Sign-in would not help; waiting does.
+            lastFailure = "Still connecting to the App Store. Try again in a moment."
         case .failed(let message):
+            lastFailure = message
             toasts.showError("Purchase unavailable", message: message)
         case .success(let snapshot):
             purchasedSnapshot = snapshot
@@ -295,18 +348,25 @@ public struct PaywallView: View {
             return
         }
         loadingAction = .restore
+        lastFailure = nil
         defer { loadingAction = nil }
         switch await billing.restorePurchases() {
         case .noPurchasesFound:
             toasts.show("No purchases found", message: "We could not find an active subscription to restore.")
         case .requiresAccount:
-            resumeAction = .restore
-            pendingAuthGate = .restore
+            lastFailure = "Still connecting to the App Store. Try again in a moment."
         case .failed(let message):
+            lastFailure = message
             toasts.showError("Restore unavailable", message: message)
         case .restored(let snapshot):
             purchasedSnapshot = snapshot
         }
+    }
+
+    private func retryCatalog() async {
+        isRetryingCatalog = true
+        defer { isRetryingCatalog = false }
+        await billing.refreshCatalog()
     }
 
     private func resume(_ action: PendingAuthAction) async {
@@ -358,8 +418,7 @@ private struct PurchaseSuccessView: View {
         PaywallPricing.lines(
             planID: snapshot.planID,
             product: catalog[snapshot.planID],
-            eligibility: snapshot.trialIsActive ? .eligible : .ineligible,
-            fallbackPrice: fallbackPrice(for: snapshot.planID)
+            eligibility: snapshot.trialIsActive ? .eligible : .ineligible
         )
     }
 
@@ -419,29 +478,21 @@ private struct PurchaseSuccessView: View {
 
 // MARK: - Copy and pricing (mirrors paywallContent.ts)
 
+/// No price lives here: the price, period, trial wording and button label
+/// are `PaywallPricing`'s to write from the live product.
 private struct PaywallPlanDefinition {
     let planID: QuotaPolicy.PlanID
     let title: String
-    /// The pre-catalog fallback price, and nothing else: the period, the
-    /// trial wording and the button label are `PaywallPricing`'s to write
-    /// from the live product.
-    let priceLine: String
     let bullets: [String]
     let featured: Bool
 }
 
-/// The fallback price for a plan, for a card with no live product yet.
-private func fallbackPrice(for planID: QuotaPolicy.PlanID) -> String {
-    paywallPlans.first { $0.planID == planID }?.priceLine ?? ""
-}
-
-/// Mirrors `PAYWALL_PLANS` (paywallContent.ts) minus the money: the prices
-/// here are bare fallbacks, and the CTA is computed.
+/// Mirrors `PAYWALL_PLANS` (paywallContent.ts) minus the money, which
+/// comes only from the StoreKit catalog.
 private let paywallPlans: [PaywallPlanDefinition] = [
     PaywallPlanDefinition(
         planID: .plus,
         title: "Plus",
-        priceLine: "$4.99",
         bullets: [
             "100 voice notes per month",
             "Up to 1 minute per note",
@@ -452,7 +503,6 @@ private let paywallPlans: [PaywallPlanDefinition] = [
     PaywallPlanDefinition(
         planID: .pro,
         title: "Pro",
-        priceLine: "$19.99",
         bullets: [
             "Unlimited voice notes",
             "Up to 5 minutes per note",

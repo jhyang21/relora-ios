@@ -33,11 +33,13 @@ public protocol PurchasesProviding: Sendable {
 
     /// Fetches product metadata for exactly these ids — never an Offering.
     /// Mirrors `loadPurchaseCatalog`'s direct `getProducts([...])` call.
-    /// RevenueCat's own `products(_:)` does not throw on a lookup failure;
-    /// an id that doesn't resolve to a StoreKit product is simply absent
-    /// from the result, which is why this returns a plain array rather
-    /// than throwing.
-    func products(identifiers: [String]) async -> [PurchasesProduct]
+    /// An id that doesn't resolve to a StoreKit product is simply absent
+    /// from the result. A lookup that fails outright throws
+    /// `PurchasesProviderError.productLookupFailed` carrying the StoreKit
+    /// error: RevenueCat's own `products(_:)` turns that failure into an
+    /// empty array, which left nothing to tell a network outage from a
+    /// missing product.
+    func products(identifiers: [String]) async throws -> [PurchasesProduct]
 
     /// The current customer's entitlement state. Mirrors
     /// `Purchases.shared.getCustomerInfo()`, called by
@@ -64,6 +66,22 @@ public protocol PurchasesProviding: Sendable {
     /// `.unknown`, which the paywall treats as eligible rather than
     /// hiding an offer the buyer probably has.
     func introEligibility(productIDs: [String]) async -> [String: PurchasesIntroEligibility]
+
+    /// Stores plain strings on the RevenueCat customer record, where they
+    /// show on the customer page of the dashboard. `BillingService` writes
+    /// the last catalog and purchase failure here, because nothing else
+    /// keeps a record of an App Store error once the paywall closes.
+    /// Never pass receipts, tokens or anything personal.
+    ///
+    /// Best-effort and silent: a failure to record must never affect the
+    /// purchase it describes.
+    func recordDiagnostics(_ attributes: [String: String]) async
+}
+
+public extension PurchasesProviding {
+    /// Records nothing. The default for fakes that do not assert on
+    /// diagnostics.
+    func recordDiagnostics(_ attributes: [String: String]) async {}
 }
 
 // MARK: - Value types
@@ -239,10 +257,17 @@ public enum PurchasesPurchaseResult: Sendable, Equatable {
 
 /// Errors this seam raises itself, distinct from whatever the SDK throws
 /// (which the adapter wraps as `.underlying`).
+///
+/// Every wrapped string has the form `"<domain>#<code>: <description>"`,
+/// read from the error as an `NSError`, so the StoreKit or RevenueCat
+/// error code survives into the diagnostics `BillingService` records.
 public enum PurchasesProviderError: Error, Sendable, Equatable {
     /// `purchase(productID:)` could not resolve `productID` to a StoreKit
     /// product — mirrors `loadPurchaseCatalog`'s "unavailable catalog"
     /// branch when `getProducts` comes back empty.
     case productNotFound(String)
+    /// The StoreKit product lookup itself threw, before any purchase
+    /// started.
+    case productLookupFailed(String)
     case underlying(String)
 }
