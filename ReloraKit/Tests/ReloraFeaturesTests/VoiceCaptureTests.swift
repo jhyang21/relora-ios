@@ -580,12 +580,32 @@ struct VoiceDisclosureTests {
         #expect(VoiceDisclosureGate.decide(hasSeenDisclosure: true) == .proceed)
     }
 
-    /// The panel repeats the Settings footer's own two sentences. If either
-    /// is reworded in one place and not the other, the app tells someone two
-    /// different stories about their audio.
-    @Test func thePrivacyLineReusesBothSettingsClaims() {
-        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.audioIsNotKept))
-        #expect(VoiceCaptureCopy.disclosurePrivacy.contains(SettingsVoiceCopy.recordingsStayOnDevice))
+    /// App Review 5.1.1/5.1.2: the panel must name the third party and say
+    /// what it receives. Audio, the transcript and the details pulled out
+    /// of it all go to OpenAI, so the body says all three.
+    @Test func disclosureNamesOpenAIAndListsAudioTranscriptAndDetails() {
+        #expect(VoiceCaptureCopy.disclosureTitle.contains("OpenAI"))
+        #expect(VoiceCaptureCopy.disclosureBody.contains("OpenAI"))
+        #expect(VoiceCaptureCopy.disclosurePrivacy.contains("OpenAI"))
+        #expect(VoiceCaptureCopy.disclosureContinue.contains("OpenAI"))
+
+        let body = VoiceCaptureCopy.disclosureBody.lowercased()
+        #expect(body.contains("audio"))
+        #expect(body.contains("transcript"))
+        #expect(body.contains("names"))
+    }
+
+    /// The panel's privacy line, pinned byte for byte. It must not claim
+    /// OpenAI keeps nothing (Andrew dropped that claim for 2.6.3), and its
+    /// on-device sentence must agree with the Settings footer's.
+    @Test func thePrivacyLineMakesOnlyTheClaimsSettingsMakes() {
+        #expect(
+            VoiceCaptureCopy.disclosurePrivacy
+                == "OpenAI does not use your data to train its models. A copy of the recording stays on this iPhone for replay. You review the note before it is saved."
+        )
+        #expect(!VoiceCaptureCopy.disclosurePrivacy.lowercased().contains("keep"))
+        #expect(!SettingsVoiceCopy.footer.lowercased().contains("does not keep"))
+        #expect(SettingsVoiceCopy.audioGoesToOpenAI.contains("does not use them to train"))
     }
 
     /// What Settings says about audio, pinned byte for byte. The sentence
@@ -594,39 +614,47 @@ struct VoiceDisclosureTests {
     @Test func theVoiceFooterSaysWhereTheAudioGoes() {
         #expect(
             SettingsVoiceCopy.footer
-                == "Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Your audio is sent securely to a transcription service that does not keep it."
+                == "Keeps the text of each voice note. Recordings always stay on this iPhone for replay. Voice notes are sent to OpenAI for transcription and note extraction. OpenAI does not use them to train its models. Turn off sending to OpenAI to be asked again before the next recording."
         )
     }
 
-    /// Andrew's copy rule: the disclosure never names the transcription
-    /// vendor. The privacy policy, the App Privacy labels and the App Review
-    /// notes carry that name; in-app copy that reads like a legal notice is
-    /// copy nobody reads.
-    @Test func noDisclosureStringNamesTheVendor() {
-        let strings = [
-            VoiceCaptureCopy.disclosureTitle,
-            VoiceCaptureCopy.disclosureBody,
-            VoiceCaptureCopy.disclosurePrivacy,
-            VoiceCaptureCopy.disclosureMicNotice,
-            VoiceCaptureCopy.disclosurePrivacyLink,
-            VoiceCaptureCopy.disclosureContinue,
-            VoiceCaptureCopy.disclosureNotNow,
-        ]
-        let forbidden = ["openai", "open ai", "chatgpt", "gpt", "whisper"]
+    /// Someone who acknowledged the 2.4.0 panel, which did not name OpenAI,
+    /// holds only the legacy boolean. That must not count as consent to the
+    /// new panel. Agreeing writes the current version; withdrawing in
+    /// Settings clears it and brings the panel back.
+    @Test func onlyTheCurrentVersionCountsAsConsent() throws {
+        let database = try AppDatabase.inMemory()
+        try AppSettingsStore(database: database).setBoolean(.voiceDisclosureSeen, true)
+        let storage = VoiceDisclosureStorage(database: database)
 
-        for string in strings {
-            let lowered = string.lowercased()
-            for name in forbidden {
-                #expect(!lowered.contains(name), "\(string) names \(name)")
-            }
-        }
+        #expect(storage.readSeen() == false)
+        #expect(VoiceDisclosureGate.decide(hasSeenDisclosure: storage.readSeen()) == .disclose)
+
+        storage.writeSeen()
+        #expect(storage.readSeen() == true)
+        #expect(
+            try AppSettingsStore(database: database).getRawValue(.voiceDisclosureVersion)
+                == VoiceDisclosureStorage.currentVersion
+        )
+
+        storage.clear()
+        #expect(storage.readSeen() == false)
+        #expect(try AppSettingsStore(database: database).getRawValue(.voiceDisclosureVersion) == nil)
+    }
+
+    /// An older version on disk is not consent to the current one.
+    @Test func anOlderConsentVersionAsksAgain() throws {
+        let database = try AppDatabase.inMemory()
+        try AppSettingsStore(database: database).setRawValue(.voiceDisclosureVersion, "1")
+
+        #expect(VoiceDisclosureStorage(database: database).readSeen() == false)
     }
 
     /// Both exhaustive switches over `VoiceCaptureStage` answer for the new
     /// case. A missing arm is a compile error, but a wrong answer is not.
     @Test func theHeaderReadsAsAPreludeRatherThanARecording() {
         #expect(VoiceCaptureCopy.stateLabel(stage: .disclosure, recording: .listening) == "Before you start")
-        #expect(VoiceCaptureCopy.title(stage: .disclosure) == "How voice notes work")
+        #expect(VoiceCaptureCopy.title(stage: .disclosure) == VoiceCaptureCopy.disclosureTitle)
     }
 }
 
