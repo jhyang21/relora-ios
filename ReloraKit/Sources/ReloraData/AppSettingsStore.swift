@@ -71,4 +71,14 @@ public struct AppSettingsStore: Sendable {
     public func saveVoiceTranscripts() throws -> Bool {
         try getBoolean(.saveVoiceTranscripts, fallback: AppSettingsDefaults.saveVoiceTranscripts)
     }
+
+    /// `saved_note_count` as an integer; absent or unreadable is 0.
+    public func savedNoteCount() throws -> Int {
+        try getRawValue(.savedNoteCount).flatMap { Int($0) } ?? 0
+    }
+
+    /// Adds one to `saved_note_count`.
+    public func incrementSavedNoteCount() throws {
+        try setRawValue(.savedNoteCount, String(try savedNoteCount() + 1))
+    }
 }

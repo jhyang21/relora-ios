@@ -82,3 +82,13 @@ docs live in the private monorepo (`docs/ios-app-store-release.md`).
 the live StoreKit catalog, Terms and Privacy links on the purchase
 screen, a corrected voice disclosure sentence, `Relora/PrivacyInfo.xcprivacy`,
 and Delete My Data for anonymous sessions.
+
+2.6.2 — Stop and Close wait for the recorder to start, and a silent
+recording says "We did not hear anything" instead of offering Retry.
+
+2.6.3 — App Review fixes: the voice disclosure names OpenAI and asks
+again, Settings can withdraw that consent, and purchase and restore
+errors show as toasts. Approved 2026-10-14.
+
+2.6.4 — Asks for an App Store review once, after the third saved voice
+note (`ReviewPromptPolicy`, asked from `RootView`).

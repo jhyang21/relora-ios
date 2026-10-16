@@ -1283,10 +1283,11 @@ private func makeComposer(
     // main-actor state.
     online: OnlineSwitch? = nil,
     session: AuthSession? = nil,
+    database: AppDatabase? = nil,
     onClose: @escaping () -> Void = {}
 ) async throws -> VoiceCaptureViewModel {
     let network = online ?? OnlineSwitch(true)
-    let database = try AppDatabase.inMemory()
+    let database = try database ?? AppDatabase.inMemory()
     if hasSeenDisclosure {
         VoiceDisclosureStorage(database: database).writeSeen()
     }
@@ -1631,5 +1632,48 @@ struct VoiceCaptureStartingTests {
             VoiceErrorCopy.message(for: BackendError.localAudioReadFailed)
                 == "Could not read that recording from local storage."
         )
+    }
+}
+
+@Suite("Voice capture: saved note count")
+struct VoiceCaptureSavedNoteCountTests {
+
+    /// Records a note and names a new contact, which is the shortest path
+    /// to a draft `save()` accepts.
+    @MainActor
+    private func draftReadyToSave(database: AppDatabase) async throws -> VoiceCaptureViewModel {
+        let model = try await makeComposer(recorder: FakeRecorder(), database: database)
+        await model.beginCapture()
+        await model.stopCapture()
+        model.selectedChip = .new
+        model.newContactName = "Ada Lovelace"
+        #expect(model.canSave)
+        return model
+    }
+
+    @MainActor
+    @Test func aSavedNoteCountsTowardTheReviewPrompt() async throws {
+        let database = try AppDatabase.inMemory()
+        let model = try await draftReadyToSave(database: database)
+
+        await model.save()
+
+        #expect(try AppSettingsStore(database: database).savedNoteCount() == 1)
+    }
+
+    @MainActor
+    @Test func aFailedSaveDoesNotCount() async throws {
+        let database = try AppDatabase.inMemory()
+        let model = try await draftReadyToSave(database: database)
+        try database.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_memory_insert BEFORE INSERT ON memories
+                BEGIN SELECT RAISE(ABORT, 'test: write refused'); END
+                """)
+        }
+
+        await model.save()
+
+        #expect(try AppSettingsStore(database: database).savedNoteCount() == 0)
     }
 }

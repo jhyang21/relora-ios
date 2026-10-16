@@ -61,6 +61,17 @@ public enum AppSettingsKey: String, Equatable, Sendable, CaseIterable {
     /// (ReloraData) — the only reader/writer of this key.
     case pendingOwnershipMigration = "pending_ownership_migration"
 
+    /// How many voice notes this install has saved, as a plain integer
+    /// string; absent reads as 0. Only feeds `ReviewPromptPolicy`. Bumped
+    /// by `VoiceCaptureViewModel.save()` after the write lands.
+    case savedNoteCount = "saved_note_count"
+
+    /// Set once the App Store review prompt has been asked for, so it is
+    /// asked for once per install. Read with the strict rule (absent is
+    /// false). Wiped with the rest of `app_settings` by Delete My Data,
+    /// the same as `softUpsellDismissed`.
+    case reviewPromptShown = "review_prompt_shown"
+
     /// The onboarding sample persona's version tag, stored under
     /// `onboardingTutorialSeedVersion`. Bump this (and the RN constant it
     /// mirrors) whenever the seeded persona's content changes — a device

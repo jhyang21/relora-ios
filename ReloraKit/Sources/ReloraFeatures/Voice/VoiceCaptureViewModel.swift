@@ -783,6 +783,9 @@ public final class VoiceCaptureViewModel {
             // `VoiceSaveTransaction.execute`.
             let plan = try VoiceSaveTransaction.plan(input, ids: &ids)
             let result = try await VoiceSaveTransaction.execute(plan, database: environment.database)
+            // Awaited so the count has landed before `onSaved` hands control
+            // to RootView, which reads it to decide on the review prompt.
+            await countSavedNote()
             toasts.show(VoiceCaptureCopy.savedToast, variant: .success)
             // Completion-driven, not a timer. RN waited 850ms after the toast
             // before navigating, which was a guess at how long a write takes;
@@ -798,6 +801,15 @@ public final class VoiceCaptureViewModel {
             return "Keep at least one line, or the reminder, before saving."
         }
         return "Something went wrong writing it down. Try saving again."
+    }
+
+    /// Off the main actor for the same reason `persistTranscript()` is. A
+    /// failed write only delays the review prompt, so it is dropped.
+    private func countSavedNote() async {
+        let database = environment.database
+        await Task.detached(priority: .utility) {
+            try? AppSettingsStore(database: database).incrementSavedNoteCount()
+        }.value
     }
 
     private func persistTranscript() async -> Bool {
