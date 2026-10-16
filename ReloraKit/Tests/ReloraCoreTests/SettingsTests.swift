@@ -69,6 +69,13 @@ struct SettingsTests {
         #expect(AppSettingsKey.voiceDisclosureVersion.rawValue == "voice_disclosure_version")
     }
 
+    /// Renaming either would ask everyone for a review again.
+    @Test("the review prompt key strings are stable across releases")
+    func reviewPromptKeyStringsAreStable() {
+        #expect(AppSettingsKey.savedNoteCount.rawValue == "saved_note_count")
+        #expect(AppSettingsKey.reviewPromptShown.rawValue == "review_prompt_shown")
+    }
+
     @Test("every app_settings key string is unique")
     func keyStringsAreUnique() {
         let rawValues = AppSettingsKey.allCases.map(\.rawValue)

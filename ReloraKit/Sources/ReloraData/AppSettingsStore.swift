@@ -71,4 +71,24 @@ public struct AppSettingsStore: Sendable {
     public func saveVoiceTranscripts() throws -> Bool {
         try getBoolean(.saveVoiceTranscripts, fallback: AppSettingsDefaults.saveVoiceTranscripts)
     }
+
+    /// `saved_note_count` as an integer; absent or unreadable is 0.
+    public func savedNoteCount() throws -> Int {
+        try getRawValue(.savedNoteCount).flatMap { Int($0) } ?? 0
+    }
+
+    /// Adds one to `saved_note_count` in one statement, so two saves that
+    /// overlap cannot both read the same count. A value that is not a
+    /// number counts as 0, as `savedNoteCount()` reads it.
+    public func incrementSavedNoteCount() throws {
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO app_settings (key, value) VALUES (?, '1')
+                    ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+                    """,
+                arguments: [AppSettingsKey.savedNoteCount.rawValue]
+            )
+        }
+    }
 }

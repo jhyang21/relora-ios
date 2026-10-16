@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import ReloraCore
 import ReloraData
@@ -14,6 +15,7 @@ public struct RootView: View {
     @Environment(IdentityController.self) private var identity
     @Environment(SyncOrchestrator.self) private var sync
     @Environment(ReloraToastCenter.self) private var toasts
+    @Environment(\.requestReview) private var requestReview
 
     private let database: AppDatabase
     private let voice: VoiceCaptureEnvironment
@@ -171,6 +173,7 @@ public struct RootView: View {
                     if case .new = target {
                         router.showNewlySavedContact(contactID)
                     }
+                    askForReviewIfDue()
                 }
             )
 
@@ -221,6 +224,7 @@ public struct RootView: View {
                 // — one slot, one owner, and the router does the swap.
                 onSaved: { savedContactID in
                     router.showNewlySavedContact(savedContactID)
+                    askForReviewIfDue()
                     // A voice-saved reminder lands with notification_id =
                     // NULL on purpose (docs/milestone-notes.md, "M6
                     // outcomes") — nothing schedules it until a
@@ -278,6 +282,33 @@ public struct RootView: View {
     private func writableUserID() async -> String {
         if let activeUserID { return activeUserID }
         return await identity.ensureLocalGuestSession()
+    }
+
+    /// Asks StoreKit for the review prompt once `ReviewPromptPolicy` says it
+    /// is due. Both save paths call this; only voice saves move the count.
+    ///
+    /// Waits 0.6s first so the sheet that just saved is gone; StoreKit
+    /// shows nothing over a sheet mid-dismissal. StoreKit also decides on
+    /// its own whether to show anything, so the flag records the ask, not
+    /// the sight.
+    private func askForReviewIfDue() {
+        let database = self.database
+        Task {
+            let isDue = await Task.detached(priority: .utility) {
+                let store = AppSettingsStore(database: database)
+                return ReviewPromptPolicy.shouldPrompt(
+                    savedNoteCount: (try? store.savedNoteCount()) ?? 0,
+                    alreadyShown: (try? store.getBooleanStrict(.reviewPromptShown)) ?? true
+                )
+            }.value
+            guard isDue else { return }
+
+            try? await Task.sleep(for: .milliseconds(600))
+            requestReview()
+            await Task.detached(priority: .utility) {
+                try? AppSettingsStore(database: database).setBoolean(.reviewPromptShown, true)
+            }.value
+        }
     }
 
     private func readOnboardingFlag() async {
